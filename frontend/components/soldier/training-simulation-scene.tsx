@@ -31,6 +31,7 @@ type TrainingSimulationSceneProps = {
   terrain: string
   time: string
   visibility: string
+  himalayanVisuals?: boolean
   playbackSeconds?: number
   missionStartedAt?: number
   onThreatDetected?: (threatId: string) => void
@@ -79,6 +80,43 @@ function SceneLabel({
     <sprite position={position} scale={[width, width * 0.15, 1]}>
       <spriteMaterial map={texture} transparent depthWrite={false} />
     </sprite>
+  )
+}
+
+function Snowfall() {
+  const geometry = useMemo(() => {
+    const random = seededRandom(0x48a1a)
+    const positions = new Float32Array(180 * 3)
+    for (let index = 0; index < positions.length; index += 3) {
+      positions[index] = random() * 96 - 48
+      positions[index + 1] = random() * 28 + 1
+      positions[index + 2] = random() * 96 - 48
+    }
+    const points = new THREE.BufferGeometry()
+    points.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    return points
+  }, [])
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  useFrame((_, delta) => {
+    const positions = geometry.attributes.position.array as Float32Array
+    for (let index = 0; index < positions.length; index += 3) {
+      positions[index] += delta * 0.035
+      if (positions[index] > 48) positions[index] = -48
+      positions[index + 1] -= delta * 0.42
+      if (positions[index + 1] < -0.5) {
+        positions[index + 1] = 29
+        positions[index] = positions[index] - 4
+      }
+    }
+    geometry.attributes.position.needsUpdate = true
+  })
+
+  return (
+    <points geometry={geometry} frustumCulled={false} renderOrder={1}>
+      <pointsMaterial color="#e8f1f3" size={0.09} transparent opacity={0.3} depthWrite={false} sizeAttenuation />
+    </points>
   )
 }
 
@@ -431,6 +469,149 @@ function TerrainTrees({ kind, trees }: { kind: TerrainKind; trees: SceneTree[] }
   )
 }
 
+function HimalayanTerrainDetails({ seed }: { seed: number }) {
+  const rocks = useRef<THREE.InstancedMesh>(null)
+  const snowPatches = useRef<THREE.InstancedMesh>(null)
+  const dummy = useMemo(() => new THREE.Object3D(), [])
+  const details = useMemo(() => {
+    const random = seededRandom(seed ^ 0x6d2b79f5)
+    const rockData = Array.from({ length: 20 }, (_, index) => {
+      const side = index % 2 === 0 ? -1 : 1
+      let x = side * (12 + random() * 35)
+      const z = -43 + random() * 84
+      if (Math.abs(x) < 17 && z > -5 && z < 21) x = side * (18 + random() * 6)
+      return {
+        x,
+        z,
+        radius: index % 6 === 0 ? 0.9 + random() * 0.6 : 0.28 + random() * 0.58,
+        height: index % 6 === 0 ? 0.55 + random() * 0.35 : 0.2 + random() * 0.42,
+        rotation: random() * Math.PI * 2,
+        tint: 0.72 + random() * 0.28,
+      }
+    })
+    const patchData = Array.from({ length: 6 }, (_, index) => ({
+      x: (index % 2 === 0 ? -1 : 1) * (21 + random() * 13),
+      z: -29 + random() * 52,
+      width: 1.1 + random() * 1.6,
+      depth: 0.7 + random() * 1.3,
+      rotation: (random() - 0.5) * 0.7,
+    }))
+    return { rockData, patchData }
+  }, [seed])
+
+  useEffect(() => {
+    if (rocks.current) {
+      details.rockData.forEach((rock, index) => {
+        const base = groundHeight('highlands', rock.x, rock.z) - 0.45
+        dummy.position.set(rock.x, base + rock.height, rock.z)
+        dummy.rotation.set(rock.rotation * 0.18, rock.rotation, rock.rotation * 0.13)
+        dummy.scale.set(rock.radius, rock.height, rock.radius * (0.65 + rock.tint * 0.25))
+        dummy.updateMatrix()
+        rocks.current?.setMatrixAt(index, dummy.matrix)
+        rocks.current?.setColorAt(index, new THREE.Color('#77746d').multiplyScalar(rock.tint))
+      })
+      rocks.current.instanceMatrix.needsUpdate = true
+      if (rocks.current.instanceColor) rocks.current.instanceColor.needsUpdate = true
+      rocks.current.computeBoundingSphere()
+    }
+    if (snowPatches.current) {
+      details.patchData.forEach((patch, index) => {
+        const base = groundHeight('highlands', patch.x, patch.z) - 0.45
+        dummy.position.set(patch.x, base + 0.04, patch.z)
+        dummy.rotation.set(-0.08, patch.rotation, 0)
+        dummy.scale.set(patch.width, 0.055, patch.depth)
+        dummy.updateMatrix()
+        snowPatches.current?.setMatrixAt(index, dummy.matrix)
+      })
+      snowPatches.current.instanceMatrix.needsUpdate = true
+      snowPatches.current.computeBoundingSphere()
+    }
+  }, [details, dummy])
+
+  return (
+    <>
+      <instancedMesh ref={rocks} args={[undefined, undefined, details.rockData.length]} castShadow receiveShadow>
+        <dodecahedronGeometry args={[1, 0]} />
+        <meshStandardMaterial color="#77746d" roughness={1} flatShading />
+      </instancedMesh>
+      <instancedMesh ref={snowPatches} args={[undefined, undefined, details.patchData.length]} receiveShadow>
+        <icosahedronGeometry args={[1, 0]} />
+        <meshStandardMaterial color="#dfeaf0" roughness={1} flatShading />
+      </instancedMesh>
+    </>
+  )
+}
+
+function HimalayanPeak({ seed, width, height }: { seed: number; width: number; height: number }) {
+  const geometry = useMemo(() => {
+    const random = seededRandom(seed)
+    const segmentCount = 7
+    const ringSettings = [
+      { radius: width, elevation: 0.02 },
+      { radius: width * 0.68, elevation: 0.36 },
+      { radius: width * 0.34, elevation: 0.76 },
+    ]
+    const rings: [number, number, number][][] = ringSettings.map((ring) => Array.from({ length: segmentCount }, (_, index) => {
+      const angle = (index / segmentCount) * Math.PI * 2 + (random() - 0.5) * 0.16
+      const radius = ring.radius * (0.84 + random() * 0.3)
+      return [
+        Math.cos(angle) * radius + (random() - 0.5) * width * 0.12,
+        height * ring.elevation * (0.9 + random() * 0.2),
+        Math.sin(angle) * radius + (random() - 0.5) * width * 0.12,
+      ] as [number, number, number]
+    }))
+    const apex: [number, number, number] = [(random() - 0.5) * width * 0.16, height, (random() - 0.5) * width * 0.16]
+    const positions: number[] = []
+    const colors: number[] = []
+    const rocks = ['#4c565a', '#606a6d', '#778084'].map((color) => new THREE.Color(color))
+    const snow = new THREE.Color('#e5edf1')
+    const addTriangle = (triangle: [number, number, number][]) => {
+      const rock = rocks[Math.floor(random() * rocks.length)]
+      for (const [x, y, z] of triangle) {
+        const elevation = y / height
+        const slopeVariation = Math.sin(x * 0.8 + z * 0.45 + seed) * 0.09
+        const coverage = THREE.MathUtils.smoothstep(elevation + slopeVariation, 0.6 + random() * 0.1, 0.94)
+        const faceColor = rock.clone().lerp(snow, coverage)
+        positions.push(x, y, z)
+        colors.push(faceColor.r, faceColor.g, faceColor.b)
+      }
+    }
+
+    for (let ringIndex = 0; ringIndex < rings.length - 1; ringIndex += 1) {
+      for (let index = 0; index < segmentCount; index += 1) {
+        const next = (index + 1) % segmentCount
+        const lower = rings[ringIndex]
+        const upper = rings[ringIndex + 1]
+        const firstDiagonal = random() > 0.5
+        if (firstDiagonal) {
+          addTriangle([lower[index], upper[index], lower[next]])
+          addTriangle([lower[next], upper[index], upper[next]])
+        } else {
+          addTriangle([lower[index], upper[index], upper[next]])
+          addTriangle([lower[index], upper[next], lower[next]])
+        }
+      }
+    }
+    const summit = rings[rings.length - 1]
+    for (let index = 0; index < segmentCount; index += 1) {
+      addTriangle([summit[index], apex, summit[(index + 1) % segmentCount]])
+    }
+    const mesh = new THREE.BufferGeometry()
+    mesh.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    mesh.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    mesh.computeVertexNormals()
+    return mesh
+  }, [height, seed, width])
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  return (
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshStandardMaterial vertexColors roughness={1} flatShading side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
 function MountainRange({ z, height, seed, color }: { z: number; height: number; seed: number; color: string }) {
   const geometry = useMemo(() => {
     const random = seededRandom(seed)
@@ -661,10 +842,12 @@ function Terrain({
   terrain,
   time,
   visibility,
+  himalayanVisuals,
 }: {
   terrain: string
   time: string
   visibility: string
+  himalayanVisuals: boolean
 }) {
   const kind = terrainKind(terrain)
   const dayPhase = time.toLowerCase()
@@ -703,7 +886,8 @@ function Terrain({
       const x = vertices.getX(index)
       const z = -vertices.getY(index)
       const elevation = groundHeight(kind, x, z)
-      vertices.setZ(index, elevation)
+      const microRelief = himalayanVisuals ? Math.sin(x * 0.62 + z * 0.47) * Math.cos(z * 0.54 - x * 0.36) * 0.045 : 0
+      vertices.setZ(index, elevation + microRelief)
       const variation = Math.sin(x * 0.43 + z * 0.17) * Math.cos(z * 0.38 - x * 0.1)
       const patch = Math.sin(x * 0.19 + z * 0.12) * Math.cos(z * 0.16 - x * 0.07)
       const vertexColor = baseColor.clone().offsetHSL(0, 0, variation * 0.025)
@@ -713,7 +897,7 @@ function Terrain({
     mesh.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
     mesh.computeVertexNormals()
     return mesh
-  }, [color, highlands, kind])
+  }, [color, highlands, himalayanVisuals, kind])
   useEffect(() => () => groundGeometry.dispose(), [groundGeometry])
 
   const seed = hashText(`${terrain}|${time}|${visibility}`)
@@ -822,14 +1006,18 @@ function Terrain({
           <MountainRange z={-44} height={8} seed={seed + 3} color="#c7d5df" />
           {[-1, 1].map((side) => (
             <group key={side} position={[side * 31, 0, -7]} rotation={[0, side * -0.15, side * 0.08]}>
-              <mesh position={[0, 7.4, 0]} castShadow>
-                <coneGeometry args={[10, 15, 6]} />
-                <meshStandardMaterial color="#62686a" roughness={1} flatShading />
-              </mesh>
-              <mesh position={[0, 12.1, 0]} castShadow>
-                <coneGeometry args={[5.9, 8.2, 6]} />
-                <meshStandardMaterial color="#e5edf1" roughness={1} flatShading />
-              </mesh>
+              {himalayanVisuals ? <HimalayanPeak seed={seed + side * 1777} width={10} height={15} /> : (
+                <>
+                  <mesh position={[0, 7.4, 0]} castShadow>
+                    <coneGeometry args={[10, 15, 6]} />
+                    <meshStandardMaterial color="#62686a" roughness={1} flatShading />
+                  </mesh>
+                  <mesh position={[0, 12.1, 0]} castShadow>
+                    <coneGeometry args={[5.9, 8.2, 6]} />
+                    <meshStandardMaterial color="#e5edf1" roughness={1} flatShading />
+                  </mesh>
+                </>
+              )}
             </group>
           ))}
         </>
@@ -1035,6 +1223,7 @@ function Terrain({
       {roadways.map((road, index) => (
         <Road key={index} points={road.points} width={road.width} color={road.color} kind={kind} />
       ))}
+      {himalayanVisuals && <HimalayanTerrainDetails seed={seed} />}
       {highlands && <ProtectedSites />}
       <TerrainTrees kind={kind} trees={trees} />
     </>
@@ -1046,6 +1235,7 @@ export function TrainingSimulationScene({
   terrain,
   time,
   visibility,
+  himalayanVisuals = false,
   playbackSeconds,
   missionStartedAt,
   onThreatDetected,
@@ -1061,11 +1251,12 @@ export function TrainingSimulationScene({
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
     >
       <CameraRig />
-      <Terrain terrain={terrain} time={time} visibility={visibility} />
+      <Terrain terrain={terrain} time={time} visibility={visibility} himalayanVisuals={himalayanVisuals} />
+      {himalayanVisuals && <Snowfall />}
       <fog
         attach="fog"
         args={[
-          night ? '#18212b' : time.toLowerCase() === 'dusk' ? '#756c6a' : time.toLowerCase() === 'dawn' ? '#96958c' : '#9ba7a1',
+          night ? '#18212b' : time.toLowerCase() === 'dusk' ? '#756c6a' : time.toLowerCase() === 'dawn' ? (himalayanVisuals ? '#b8c8d2' : '#96958c') : '#9ba7a1',
           /fog|blackout/i.test(visibility) ? 22 : /dust|snow/i.test(visibility) ? 28 : /degraded|haze|reduced|low light/i.test(visibility) ? 42 : 66,
           far,
         ]}

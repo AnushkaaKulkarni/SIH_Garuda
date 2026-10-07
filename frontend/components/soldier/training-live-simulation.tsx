@@ -504,6 +504,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
                 terrain={scenario.terrain}
                 time={scenario.time}
                 visibility={scenario.visibility}
+                himalayanVisuals={isHimalayan}
               />
               <span className={styles.sceneCallout}><b>03</b> 3D SIMULATION</span>
               <span className={styles.assetCallout}><b>06</b> PROTECTED ASSETS</span>
@@ -667,6 +668,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
             terrain={scenario.terrain}
             time={scenario.time}
             visibility={scenario.visibility}
+            himalayanVisuals={isHimalayan}
             missionStartedAt={missionStarted ? startedAt.current : undefined}
             onThreatDetected={selectThreat}
           />

@@ -199,6 +199,7 @@ function RecordedReplay({
           terrain={session.environment.terrain}
           time={session.environment.time}
           visibility={session.environment.visibility}
+          himalayanVisuals={session.scenario === 'himalayan-shield'}
           playbackSeconds={playbackMs / 1000}
         />
         {activeEvent && (
