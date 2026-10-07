@@ -1,0 +1,2 @@
+import { TrainingExperience } from '@/components/soldier/training-experience'
+export default function Page(){return <TrainingExperience/>}

@@ -1,0 +1,97 @@
+.scenePanel {
+  padding: 0;
+  background-image: none;
+}
+
+.loading {
+  display: flex;
+  min-height: 510px;
+  align-items: center;
+  justify-content: center;
+  color: #a8c3ba;
+  background: #10251f;
+  font: 600 11px/1.5 ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sceneHud {
+  position: absolute;
+  inset: 13px 14px auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+  color: #d9e8df;
+  font: 600 10px/1.4 ui-monospace, monospace;
+  letter-spacing: 0.1em;
+  text-shadow: 0 1px 5px #07141c;
+}
+
+.sceneHud span:last-child,
+.sceneDetection,
+.sceneHint {
+  border: 1px solid #557169;
+  border-radius: 3px;
+  background: #07171ddd;
+  padding: 4px 7px;
+}
+
+.sceneDetection {
+  position: absolute;
+  bottom: 13px;
+  left: 14px;
+  max-width: calc(100% - 28px);
+  color: #d9e8df;
+  pointer-events: none;
+  font: 600 9px/1.5 ui-monospace, monospace;
+}
+
+.sceneHint {
+  position: absolute;
+  right: 14px;
+  bottom: 13px;
+  color: #c2d2c7;
+  pointer-events: none;
+  font: 9px/1.4 ui-monospace, monospace;
+}
+
+.immersive :global(.portal-topbar),
+.immersive :global(.sidebar) {
+  display: none;
+}
+
+.immersive :global(.page-content) {
+  max-width: none;
+  padding: 8px;
+}
+
+.immersive :global(.page-heading) {
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.immersive :global(.page-heading > div > p:last-child) {
+  display: none;
+}
+
+.immersive :global(.simulation-layout) {
+  grid-template-columns: 170px minmax(0, 1fr) 210px;
+  gap: 10px;
+}
+
+.immersive :global(.tactical-map) {
+  height: calc(100vh - 250px);
+  min-height: 330px;
+}
+
+@media (max-width: 900px) {
+  .immersive :global(.simulation-layout) {
+    grid-template-columns: 1fr;
+  }
+
+  .immersive :global(.tactical-map) {
+    height: 58vh;
+    min-height: 310px;
+  }
+}

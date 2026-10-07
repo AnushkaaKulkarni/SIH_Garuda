@@ -1,0 +1,3 @@
+import { DrishtiAssistant } from '@/components/common/drishti-assistant'
+import { PortalShell, PageHeader, Panel } from '@/components/common/portal-shell'
+export default function Page(){return <PortalShell role="admin"><main className="page-content drishti-page"><PageHeader eyebrow="COMMAND INTELLIGENCE / PERSONAL ASSISTANT" title="GARUDA DRISHTI" subtitle="Contextual unit readiness guidance for command decisions."/><Panel><DrishtiAssistant role="admin"/><p className="muted">Use the DRISHTI control in the lower corner for unit readiness, live sessions, skill gaps, and at-risk trainee guidance.</p></Panel></main></PortalShell>}
