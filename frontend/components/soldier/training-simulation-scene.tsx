@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
-import { Html, OrbitControls } from '@react-three/drei'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 
 export type SimulationContact = {
@@ -34,6 +34,52 @@ type TrainingSimulationSceneProps = {
   playbackSeconds?: number
   missionStartedAt?: number
   onThreatDetected?: (threatId: string) => void
+}
+
+function SceneLabel({
+  text,
+  position,
+  color,
+  background = 'rgba(5, 12, 16, 0.88)',
+  width = 5.2,
+}: {
+  text: string
+  position: [number, number, number]
+  color: string
+  background?: string
+  width?: number
+}) {
+  const texture = useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 96
+    const context = canvas.getContext('2d')
+    if (context) {
+      context.fillStyle = background
+      context.strokeStyle = color
+      context.lineWidth = 3
+      context.beginPath()
+      context.roundRect(3, 3, 634, 90, 10)
+      context.fill()
+      context.stroke()
+      context.fillStyle = '#edf6f5'
+      context.font = '700 31px ui-monospace, monospace'
+      context.textAlign = 'center'
+      context.textBaseline = 'middle'
+      context.fillText(text, 320, 48, 600)
+    }
+    const labelTexture = new THREE.CanvasTexture(canvas)
+    labelTexture.colorSpace = THREE.SRGBColorSpace
+    return labelTexture
+  }, [background, color, text])
+
+  useEffect(() => () => texture.dispose(), [texture])
+
+  return (
+    <sprite position={position} scale={[width, width * 0.15, 1]}>
+      <spriteMaterial map={texture} transparent depthWrite={false} />
+    </sprite>
+  )
 }
 
 function Drone({
@@ -80,26 +126,30 @@ function Drone({
     const elapsed = Math.max(0, missionTime) + motion.phase
     if (body.current) {
       if (route && routeLength > 0) {
+        const routeSpeed = ((motion.speed ?? 0.8) * 0.08)
         const progress = missionTime <= 0
           ? 0
-          : ((missionTime * (motion.speed ?? 0.8)) % routeLength) / routeLength
+          : ((missionTime * routeSpeed) % routeLength) / routeLength
         const point = route.getPointAt(progress)
         const tangent = route.getTangentAt(progress)
         const bank = THREE.MathUtils.clamp(-tangent.x * 0.3, -0.32, 0.32)
+        const driftX = Math.sin(elapsed * (motion.frequency[0] ?? 0.3) + motion.phase) * (motion.amplitude[0] ?? 1) * 0.25
+        const driftZ = Math.cos(elapsed * (motion.frequency[1] ?? 0.2) + motion.phase) * (motion.amplitude[1] ?? 1) * 0.25
+        const lift = Math.sin(elapsed * (motion.verticalFrequency ?? 1.7) + motion.phase) * (motion.verticalAmplitude ?? 0.9)
         body.current.position.set(
-          point.x,
-          point.y + Math.sin(elapsed * (motion.verticalFrequency ?? 1.7)) * (motion.verticalAmplitude ?? 0.16),
-          point.z,
+          point.x + driftX,
+          point.y + lift,
+          point.z + driftZ,
         )
         body.current.rotation.set(
-          Math.sin(elapsed * 0.7 + motion.phase) * 0.025,
+          Math.sin(elapsed * 0.7 + motion.phase) * 0.05,
           Math.atan2(tangent.x, tangent.z),
-          bank + Math.sin(elapsed * 0.5 + motion.phase) * (motion.rotationAmplitude ?? 0.16) * 0.25,
+          bank + Math.sin(elapsed * 0.5 + motion.phase) * (motion.rotationAmplitude ?? 0.16) * 0.3,
         )
       } else {
         body.current.position.set(
           contact.position[0] + Math.sin(elapsed * motion.frequency[0]) * motion.amplitude[0],
-          contact.position[1] + Math.sin(elapsed * (motion.verticalFrequency ?? 1.7)) * (motion.verticalAmplitude ?? 0.16),
+          contact.position[1] + Math.sin(elapsed * (motion.verticalFrequency ?? 1.7)) * (motion.verticalAmplitude ?? 0.16) + Math.cos(elapsed * 0.8 + motion.phase) * 0.8,
           contact.position[2] + Math.cos(elapsed * motion.frequency[1]) * motion.amplitude[1],
         )
         body.current.rotation.y = Math.sin(elapsed * motion.frequency[0]) * (motion.rotationAmplitude ?? 0.16)
@@ -118,7 +168,7 @@ function Drone({
   return (
     <group
       ref={body}
-      scale={1.6}
+      scale={0.68}
       onPointerOver={(event) => {
         event.stopPropagation()
         document.body.style.cursor = 'pointer'
@@ -232,19 +282,12 @@ function Drone({
             <ringGeometry args={[0.78, 0.84, 48]} />
             <meshBasicMaterial color={cueColor} transparent opacity={contact.cueHypothetical ? 0.9 : 0.72} side={THREE.DoubleSide} />
           </mesh>
-          <Html position={[0, 0.85, 0]} center distanceFactor={13} style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-            <span style={{
-              background: contact.cueHypothetical ? 'rgba(82, 54, 122, 0.94)' : 'rgba(18, 34, 38, 0.94)',
-              border: `1px solid ${cueColor}`,
-              borderRadius: 4,
-              color: '#f3f5ed',
-              font: '700 9px/1.2 ui-monospace, monospace',
-              letterSpacing: '0.06em',
-              padding: '4px 6px',
-            }}>
-              {contact.cueHypothetical ? 'WHAT-IF · ' : ''}{contact.eventCue}
-            </span>
-          </Html>
+          <SceneLabel
+            position={[0, 0.85, 0]}
+            text={`${contact.cueHypothetical ? 'WHAT-IF / ' : ''}${contact.eventCue}`}
+            color={cueColor}
+            background={contact.cueHypothetical ? 'rgba(82, 54, 122, 0.94)' : 'rgba(18, 34, 38, 0.94)'}
+          />
         </>
       )}
     </group>
@@ -337,7 +380,9 @@ function TerrainTrees({ kind, trees }: { kind: TerrainKind; trees: SceneTree[] }
       if (lowerCanopies.current) lowerCanopies.current.instanceMatrix.needsUpdate = true
       if (upperCanopies.current) upperCanopies.current.instanceMatrix.needsUpdate = true
     }
-    if (palm && leaves.current) {
+    if (palm) {
+      const leavesMesh = leaves.current
+      if (!leavesMesh) return
       trees.forEach((tree, index) => {
         for (let leaf = 0; leaf < 5; leaf += 1) {
           const angle = (leaf / 5) * Math.PI * 2 + tree.rotation
@@ -349,10 +394,10 @@ function TerrainTrees({ kind, trees }: { kind: TerrainKind; trees: SceneTree[] }
           dummy.rotation.set(0.8, -angle, Math.cos(angle) * 0.72)
           dummy.scale.set(tree.height * 0.52, tree.height * 0.86, tree.height * 0.5)
           dummy.updateMatrix()
-          leaves.current.setMatrixAt(index * 5 + leaf, dummy.matrix)
+          leavesMesh.setMatrixAt(index * 5 + leaf, dummy.matrix)
         }
       })
-      leaves.current.instanceMatrix.needsUpdate = true
+      leavesMesh.instanceMatrix.needsUpdate = true
     }
     for (const mesh of [trunks.current, lowerCanopies.current, upperCanopies.current, leaves.current]) {
       if (mesh) mesh.computeBoundingSphere()
@@ -389,25 +434,32 @@ function TerrainTrees({ kind, trees }: { kind: TerrainKind; trees: SceneTree[] }
 function MountainRange({ z, height, seed, color }: { z: number; height: number; seed: number; color: string }) {
   const geometry = useMemo(() => {
     const random = seededRandom(seed)
-    const segments = 18
-    const width = 124
+    const segments = 26
+    const width = 138
     const base = -0.25
     const points = Array.from({ length: segments + 1 }, (_, index) => ({
       x: -width / 2 + (index / segments) * width,
-      y: base + height * (0.3 + random() * 0.7),
+      y: base + height * (0.24 + Math.pow(random(), 0.72) * 0.84),
     }))
     const positions: number[] = []
     const colors: number[] = []
     const indices: number[] = []
-    const palette = [new THREE.Color(color), new THREE.Color(color).offsetHSL(0.01, -0.07, 0.08), new THREE.Color(color).offsetHSL(-0.015, -0.1, -0.08)]
+    const snowColor = new THREE.Color(color)
+    const rockPalette = ['#4d5658', '#626c70', '#748084'].map((value) => new THREE.Color(value))
     for (let index = 0; index < segments; index += 1) {
       const start = positions.length / 3
       const left = points[index]
       const right = points[index + 1]
-      const ridge = Math.min(left.y, right.y) + height * (0.08 + random() * 0.18)
+      const ridge = Math.min(left.y, right.y) + height * (0.08 + random() * 0.2)
+      const heights = [base, left.y, ridge, right.y, base]
       positions.push(left.x, base, 0, left.x, left.y, 0, (left.x + right.x) / 2, ridge, 0, right.x, right.y, 0, right.x, base, 0)
-      const colorChoice = palette[Math.floor(random() * palette.length)]
-      for (let vertex = 0; vertex < 5; vertex += 1) colors.push(colorChoice.r, colorChoice.g, colorChoice.b)
+      const rockColor = rockPalette[Math.floor(random() * rockPalette.length)]
+      for (const vertexHeight of heights) {
+        const elevation = THREE.MathUtils.clamp((vertexHeight - base) / height, 0, 1)
+        const snowCoverage = THREE.MathUtils.smoothstep(elevation, 0.58 + random() * 0.08, 0.82)
+        const vertexColor = rockColor.clone().lerp(snowColor, snowCoverage)
+        colors.push(vertexColor.r, vertexColor.g, vertexColor.b)
+      }
       indices.push(start, start + 1, start + 2, start + 2, start + 3, start + 4, start, start + 2, start + 4)
     }
     const mesh = new THREE.BufferGeometry()
@@ -496,6 +548,115 @@ function DunePatch({
   )
 }
 
+function CameraRig() {
+  const { camera } = useThree()
+  const keys = useRef({ forward: false, backward: false, left: false, right: false })
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'w') keys.current.forward = true
+      if (event.key.toLowerCase() === 's') keys.current.backward = true
+      if (event.key.toLowerCase() === 'a') keys.current.left = true
+      if (event.key.toLowerCase() === 'd') keys.current.right = true
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === 'w') keys.current.forward = false
+      if (event.key.toLowerCase() === 's') keys.current.backward = false
+      if (event.key.toLowerCase() === 'a') keys.current.left = false
+      if (event.key.toLowerCase() === 'd') keys.current.right = false
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
+
+  useFrame((_, delta) => {
+    const moveVector = new THREE.Vector3()
+    const forward = new THREE.Vector3()
+    camera.getWorldDirection(forward)
+    forward.y = 0
+    forward.normalize()
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+
+    if (keys.current.forward) moveVector.add(forward)
+    if (keys.current.backward) moveVector.sub(forward)
+    if (keys.current.left) moveVector.sub(right)
+    if (keys.current.right) moveVector.add(right)
+
+    if (moveVector.lengthSq() > 0) {
+      moveVector.normalize().multiplyScalar(14 * delta)
+      camera.position.add(moveVector)
+      camera.position.y = THREE.MathUtils.clamp(camera.position.y, 4, 20)
+    }
+  })
+
+  return null
+}
+
+function ProtectedSites() {
+  const sites = [
+    { id: 'forward-outpost', name: 'FORWARD OUTPOST', position: [-18, 0.15, 12], color: '#8da0a2' },
+    { id: 'communication-station', name: 'COMMUNICATION STATION', position: [6, 0.18, -15], color: '#7a8a90' },
+    { id: 'radar-station', name: 'RADAR / SENSOR STATION', position: [20, 0.2, 8], color: '#93a0a7' },
+    { id: 'supply-area', name: 'SUPPLY / LOGISTICS', position: [-4, 0.15, -28], color: '#7b7770' },
+    { id: 'ridge-road', name: 'PROTECTED ROUTE', position: [0, 0.15, 18], color: '#7a8684' },
+  ]
+
+  return (
+    <group>
+      {sites.map((site) => (
+        <group key={site.id} position={site.position as [number, number, number]}>
+          <mesh position={[0, 0.8, 0]} castShadow receiveShadow>
+            <boxGeometry args={[2.2, 1.4, 2.2]} />
+            <meshStandardMaterial color={site.color} roughness={0.8} />
+          </mesh>
+          <mesh position={[0, 1.9, 0]} castShadow>
+            <boxGeometry args={[1.8, 0.18, 1.8]} />
+            <meshStandardMaterial color="#4d5f63" roughness={0.68} />
+          </mesh>
+          <mesh position={[0.82, 2.1, 0.82]} castShadow>
+            <cylinderGeometry args={[0.12, 0.18, 2.2, 8]} />
+            <meshStandardMaterial color="#a8b6b2" metalness={0.34} roughness={0.5} />
+          </mesh>
+          {site.id === 'radar-station' && (
+            <group position={[-0.62, 2.15, 0.35]}>
+              <mesh position={[0, 0.72, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <sphereGeometry args={[0.72, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2]} />
+                <meshStandardMaterial color="#c0d0d0" metalness={0.3} roughness={0.48} side={THREE.DoubleSide} />
+              </mesh>
+              <mesh position={[0, 0.3, 0]}>
+                <cylinderGeometry args={[0.06, 0.08, 0.9, 7]} />
+                <meshStandardMaterial color="#879b9d" metalness={0.28} roughness={0.52} />
+              </mesh>
+            </group>
+          )}
+          {site.id === 'communication-station' && (
+            <group position={[-0.55, 2.5, -0.35]}>
+              <mesh><cylinderGeometry args={[0.035, 0.055, 2.6, 6]} /><meshStandardMaterial color="#b0bfbc" metalness={0.35} roughness={0.5} /></mesh>
+              <mesh position={[0, 0.5, 0]}><boxGeometry args={[0.9, 0.045, 0.045]} /><meshStandardMaterial color="#b0bfbc" metalness={0.35} roughness={0.5} /></mesh>
+              <mesh position={[0, -0.35, 0]}><boxGeometry args={[0.65, 0.04, 0.04]} /><meshStandardMaterial color="#b0bfbc" metalness={0.35} roughness={0.5} /></mesh>
+            </group>
+          )}
+          {site.id === 'supply-area' && (
+            <group position={[0, 0.1, -0.72]}>
+              <mesh position={[-0.52, 0.38, 0]} castShadow><boxGeometry args={[0.64, 0.7, 0.58]} /><meshStandardMaterial color="#9b8869" roughness={0.94} /></mesh>
+              <mesh position={[0.3, 0.28, 0]} castShadow><boxGeometry args={[0.74, 0.5, 0.62]} /><meshStandardMaterial color="#727b6b" roughness={0.94} /></mesh>
+            </group>
+          )}
+          <mesh position={[0, 1.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[2.8, 3.4, 32]} />
+            <meshBasicMaterial color="#9dd6d1" transparent opacity={0.32} side={THREE.DoubleSide} />
+          </mesh>
+          <SceneLabel position={[0, 3.2, 0]} text={`PROTECTED / ${site.name}`} color="#9dd6d1" width={6.2} />
+        </group>
+      ))}
+    </group>
+  )
+}
+
 function Terrain({
   terrain,
   time,
@@ -513,11 +674,11 @@ function Terrain({
   const dusk = dayPhase === 'dusk'
   const blackout = /blackout/.test(visibilityCondition)
   const lowLight = /low light/.test(visibilityCondition)
-  const skyColor = night || blackout ? '#18212b' : dusk ? '#756c6a' : dawn ? '#96958c' : kind === 'desert' ? '#a7a096' : kind === 'coastal' ? '#94a6a4' : '#9ba7a1'
+  const skyColor = night || blackout ? '#18212b' : dusk ? '#756c6a' : dawn ? '#c3d4e2' : kind === 'desert' ? '#a7a096' : kind === 'coastal' ? '#94a6a4' : '#c8d7e7'
   const atmosphericColor = /dust/.test(visibilityCondition)
     ? '#a79a82'
     : /snow/.test(visibilityCondition)
-      ? '#aab5b7'
+      ? '#d9e4ef'
       : /fog|haze|degraded|reduced/.test(visibilityCondition)
         ? '#a0aaa5'
         : night || blackout
@@ -529,33 +690,36 @@ function Terrain({
   const industrial = kind === 'industrial'
   const highlands = kind === 'highlands'
   const rural = kind === 'rural'
-  const color = highlands ? '#686e65' : desert ? '#aa966f' : coastal ? '#827d69' : urban ? '#656861' : industrial ? '#77766a' : kind === 'border' ? '#716e5c' : '#66704f'
-  const baseMaterial = highlands ? '#686b61' : desert ? '#ad9567' : coastal ? '#8a8066' : urban ? '#535754' : industrial ? '#65675e' : kind === 'border' ? '#77715c' : '#69714f'
+  const color = highlands ? '#777366' : desert ? '#aa966f' : coastal ? '#827d69' : urban ? '#656861' : industrial ? '#77766a' : kind === 'border' ? '#716e5c' : '#66704f'
+  const baseMaterial = highlands ? '#625e53' : desert ? '#ad9567' : coastal ? '#8a8066' : urban ? '#535754' : industrial ? '#65675e' : kind === 'border' ? '#77715c' : '#69714f'
 
   const groundGeometry = useMemo(() => {
     const mesh = new THREE.PlaneGeometry(112, 112, 72, 72)
     const vertices = mesh.attributes.position
     const colors: number[] = []
     const baseColor = new THREE.Color(color)
+    const snowColor = new THREE.Color('#e6edf0')
     for (let index = 0; index < vertices.count; index += 1) {
       const x = vertices.getX(index)
       const z = -vertices.getY(index)
-      vertices.setZ(index, groundHeight(kind, x, z))
+      const elevation = groundHeight(kind, x, z)
+      vertices.setZ(index, elevation)
       const variation = Math.sin(x * 0.43 + z * 0.17) * Math.cos(z * 0.38 - x * 0.1)
-      const patch = ((Math.floor((x + 56) / 5) + Math.floor((z + 56) / 6)) % 2) * 0.035
-      const vertexColor = baseColor.clone().offsetHSL(0, 0, variation * 0.025 + patch)
+      const patch = Math.sin(x * 0.19 + z * 0.12) * Math.cos(z * 0.16 - x * 0.07)
+      const vertexColor = baseColor.clone().offsetHSL(0, 0, variation * 0.025)
+      if (highlands) vertexColor.lerp(snowColor, THREE.MathUtils.clamp((elevation - 1.2 + patch * 0.6) * 1.25, 0, 0.95))
       colors.push(vertexColor.r, vertexColor.g, vertexColor.b)
     }
     mesh.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
     mesh.computeVertexNormals()
     return mesh
-  }, [color, kind])
+  }, [color, highlands, kind])
   useEffect(() => () => groundGeometry.dispose(), [groundGeometry])
 
   const seed = hashText(`${terrain}|${time}|${visibility}`)
   const trees = useMemo(() => {
     const random = seededRandom(seed)
-    const count = highlands ? 25 : coastal ? 12 : desert ? 7 : urban ? 9 : rural ? 25 : kind === 'border' ? 13 : 6
+    const count = highlands ? 48 : coastal ? 12 : desert ? 7 : urban ? 9 : rural ? 25 : kind === 'border' ? 13 : 6
     return Array.from({ length: count }, (_, index) => {
       const side = index % 2 === 0 ? -1 : 1
       let x = side * (highlands ? 12 + random() * 27 : urban ? 19 + random() * 17 : 10 + random() * 32)
@@ -569,7 +733,7 @@ function Terrain({
         z = -27 + random() * 58
       }
       if (Math.abs(x) < 11 && z > -7 && z < 20) x = side * 13
-      return { x, z, height: (coastal ? 2.2 : desert ? 0.55 : 1.8) + random() * (coastal ? 1 : desert ? 0.35 : 1.1), rotation: random() * Math.PI * 2 }
+      return { x, z, height: (coastal ? 2.2 : desert ? 0.55 : highlands ? 2.4 : 1.8) + random() * (coastal ? 1 : desert ? 0.35 : highlands ? 2.1 : 1.1), rotation: random() * Math.PI * 2 }
     })
   }, [coastal, desert, highlands, kind, seed, urban])
 
@@ -616,7 +780,10 @@ function Terrain({
   }, [seed])
 
   const roadways = useMemo(() => {
-    if (highlands) return [{ points: [[-25, 28], [-20, 21], [-22, 15], [-16, 9], [-18, 2], [-12, -8], [-16, -20], [-21, -31]] as [number, number][], width: 2.8, color: '#545650' }]
+    if (highlands) return [
+      { points: [[-25, 28], [-20, 21], [-22, 15], [-16, 9], [-18, 2], [-12, -8], [-16, -20], [-21, -31]] as [number, number][], width: 2.8, color: '#545650' },
+      { points: [[-4, -28], [-7, -22], [-8, -16], [-3, -10], [-1, -3], [6, 3], [11, 8]] as [number, number][], width: 1.15, color: '#796c53' },
+    ]
     if (desert) return [{ points: [[29, 30], [18, 20], [23, 10], [13, 0], [19, -12], [8, -22], [11, -32]] as [number, number][], width: 3, color: '#8b7856' }]
     if (coastal) return [{ points: [[-42, -17], [-22, -15.5], [0, -17], [22, -15.5], [42, -17]] as [number, number][], width: 3.5, color: '#5d6259' }]
     if (urban) return [
@@ -633,12 +800,12 @@ function Terrain({
   return (
     <>
       <color attach="background" args={[atmosphericColor]} />
-      <ambientLight intensity={night || blackout ? 0.58 : lowLight ? 0.66 : dusk ? 0.72 : dawn ? 0.84 : 0.95} color={night || blackout ? '#9eb4cc' : /snow/.test(visibilityCondition) ? '#d7e2e7' : dawn ? '#e8c5a2' : dusk ? '#d8a995' : '#e4e6d8'} />
-      <hemisphereLight args={[night || blackout ? '#8da6c8' : dawn || dusk ? '#e6c5ad' : '#dbe5e2', desert ? '#8c7655' : '#394238', night || blackout ? 0.62 : 0.78]} />
+      <ambientLight intensity={night || blackout ? 0.58 : lowLight ? 0.66 : dusk ? 0.72 : dawn ? 0.9 : 0.95} color={night || blackout ? '#9eb4cc' : /snow/.test(visibilityCondition) ? '#d7e2e7' : dawn && highlands ? '#edf4fa' : dawn ? '#e8c5a2' : dusk ? '#d8a995' : '#e4e6d8'} />
+      <hemisphereLight args={[night || blackout ? '#8da6c8' : dawn || dusk ? '#e6c5ad' : '#dbe5e2', desert ? '#8c7655' : highlands ? '#454740' : '#394238', night || blackout ? 0.62 : 0.78]} />
       <directionalLight
         position={night || blackout ? [-12, 16, -8] : dawn || dusk ? [-10, 8, 8] : [-10, 19, 8]}
         intensity={night || blackout ? 1 : dusk ? 1.15 : 1.8}
-        color={night || blackout ? '#abc4e5' : dawn || dusk ? '#efbb91' : '#fff0cf'}
+        color={night || blackout ? '#abc4e5' : dawn && highlands ? '#f3e8d8' : dawn || dusk ? '#efbb91' : '#fff0cf'}
       />
       <mesh geometry={groundGeometry} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.45, 0]} receiveShadow>
         <meshStandardMaterial vertexColors roughness={1} metalness={0} emissive={night || blackout ? '#151b1d' : '#000000'} emissiveIntensity={night || blackout ? 0.22 : 0} />
@@ -650,14 +817,20 @@ function Terrain({
 
       {highlands && (
         <>
-          <MountainRange z={-59} height={15} seed={seed + 1} color="#697575" />
-          <MountainRange z={-52} height={11} seed={seed + 2} color="#5b6868" />
-          <MountainRange z={-45} height={7} seed={seed + 3} color="#505f5d" />
+          <MountainRange z={-59} height={15} seed={seed + 1} color="#edf5ff" />
+          <MountainRange z={-52} height={11} seed={seed + 2} color="#dfeaf7" />
+          <MountainRange z={-44} height={8} seed={seed + 3} color="#c7d5df" />
           {[-1, 1].map((side) => (
-            <mesh key={side} position={[side * 30, 1.5, -1]} rotation={[0, side * -0.15, side * 0.08]} castShadow>
-              <dodecahedronGeometry args={[8, 1]} />
-              <meshStandardMaterial color="#696a61" roughness={1} flatShading />
-            </mesh>
+            <group key={side} position={[side * 31, 0, -7]} rotation={[0, side * -0.15, side * 0.08]}>
+              <mesh position={[0, 7.4, 0]} castShadow>
+                <coneGeometry args={[10, 15, 6]} />
+                <meshStandardMaterial color="#62686a" roughness={1} flatShading />
+              </mesh>
+              <mesh position={[0, 12.1, 0]} castShadow>
+                <coneGeometry args={[5.9, 8.2, 6]} />
+                <meshStandardMaterial color="#e5edf1" roughness={1} flatShading />
+              </mesh>
+            </group>
           ))}
         </>
       )}
@@ -862,6 +1035,7 @@ function Terrain({
       {roadways.map((road, index) => (
         <Road key={index} points={road.points} width={road.width} color={road.color} kind={kind} />
       ))}
+      {highlands && <ProtectedSites />}
       <TerrainTrees kind={kind} trees={trees} />
     </>
   )
@@ -886,6 +1060,7 @@ export function TrainingSimulationScene({
       gl={{ antialias: true, powerPreference: 'low-power' }}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
     >
+      <CameraRig />
       <Terrain terrain={terrain} time={time} visibility={visibility} />
       <fog
         attach="fog"

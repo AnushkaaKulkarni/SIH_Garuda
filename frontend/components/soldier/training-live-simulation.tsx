@@ -12,6 +12,8 @@ import {
   createScenarioSeed,
   createSeededRandom,
   createSessionId,
+  generateHimalayanThreats,
+  getHimalayanThreatAssessment,
   getPriority,
   saveTrainingSession,
   type SessionEvent,
@@ -27,116 +29,150 @@ const TrainingSimulationScene = dynamic(
   { ssr: false, loading: () => <div className={styles.loading}>Preparing training terrain…</div> },
 )
 
+function UavReference({ type }: { type: string }) {
+  const fixedWing = /fixed-wing|loitering/i.test(type)
+  const unknown = /unknown/i.test(type)
+
+  return (
+    <div className={`${styles.uavReference} ${fixedWing ? styles.fixedWing : unknown ? styles.unknownUav : styles.quadcopter}`} role="img" aria-label={`${type} silhouette reference`}>
+      <svg viewBox="0 0 220 100" aria-hidden="true">
+        {fixedWing ? (
+          <path d="M108 8 119 39 205 59 205 69 121 61 116 87 137 94 137 99 110 93 83 99 83 94 104 87 99 61 15 69 15 59 101 39Z" />
+        ) : unknown ? (
+          <g>
+            <path d="M110 29 127 43 184 30 188 37 137 55 127 63 184 75 180 82 122 70 110 82 98 70 40 82 36 75 93 63 83 55 32 37 36 30 93 43Z" />
+            <circle cx="110" cy="54" r="13" />
+            <circle cx="29" cy="32" r="7" /><circle cx="191" cy="32" r="7" />
+            <circle cx="29" cy="80" r="7" /><circle cx="191" cy="80" r="7" />
+          </g>
+        ) : (
+          <g>
+            <path d="M99 46 58 25 54 31 86 51 54 69 58 75 99 55 121 55 162 75 166 69 134 51 166 31 162 25 121 46Z" />
+            <rect x="99" y="42" width="22" height="18" rx="5" />
+            <ellipse cx="47" cy="28" rx="18" ry="4" /><ellipse cx="173" cy="28" rx="18" ry="4" />
+            <ellipse cx="47" cy="72" rx="18" ry="4" /><ellipse cx="173" cy="72" rx="18" ry="4" />
+          </g>
+        )}
+      </svg>
+      <div><strong>{type}</strong><small>TRAINING IDENTIFICATION REFERENCE</small></div>
+    </div>
+  )
+}
+
 export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0]
+  const isHimalayan = scenario.id === 'himalayan-shield'
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>(scenario.difficulty)
   const [run, setRun] = useState({ id: 'starting', seed: 0 })
-  const threats = useMemo<SessionThreat[]>(
-    () => {
-      const countScale: Record<TrainingDifficulty, number> = {
-        Easy: 0.75,
-        Medium: 1,
-        Hard: 1.2,
-        Expert: 1.4,
+  const threats = useMemo<SessionThreat[]>(() => {
+    if (scenario.id === 'himalayan-shield') {
+      return generateHimalayanThreats(run.seed || createScenarioSeed(), difficulty)
+    }
+
+    const countScale: Record<TrainingDifficulty, number> = {
+      Easy: 0.75,
+      Medium: 1,
+      Hard: 1.2,
+      Expert: 1.4,
+    }
+    const speedScale: Record<TrainingDifficulty, number> = {
+      Easy: 0.65,
+      Medium: 0.85,
+      Hard: 1.1,
+      Expert: 1.35,
+    }
+    const spawnInterval: Record<TrainingDifficulty, number> = {
+      Easy: 4200,
+      Medium: 3000,
+      Hard: 2000,
+      Expert: 1000,
+    }
+    const random = createSeededRandom(run.seed)
+    const count = Math.max(1, Math.round(scenario.threatCount * countScale[difficulty]))
+    const swarm = scenario.type === 'Swarm'
+    const unknownChance: Record<TrainingDifficulty, number> = {
+      Easy: 0.16,
+      Medium: 0.27,
+      Hard: 0.36,
+      Expert: 0.44,
+    }
+    const hostileChance: Record<TrainingDifficulty, number> = {
+      Easy: 0.35,
+      Medium: 0.36,
+      Hard: 0.38,
+      Expert: 0.4,
+    }
+    const signalErrorRate: Record<TrainingDifficulty, number> = {
+      Easy: 0,
+      Medium: 0.12,
+      Hard: 0.24,
+      Expert: 0.4,
+    }
+    const classifications = Array.from({ length: count }, () => {
+      const value = random()
+      return value < hostileChance[difficulty]
+        ? 'Hostile'
+        : value < hostileChance[difficulty] + unknownChance[difficulty]
+          ? 'Unknown'
+          : 'Friendly'
+    })
+    if (!classifications.includes('Hostile')) classifications[0] = 'Hostile'
+    const signalClassifications = classifications.map((classification) => {
+      if (random() >= signalErrorRate[difficulty]) return classification
+      const alternatives = ['Friendly', 'Unknown', 'Hostile'].filter((item) => item !== classification)
+      return alternatives[Math.floor(random() * alternatives.length)]
+    })
+    return Array.from({ length: count }, (_, index) => {
+      const group = Math.floor(index / 3)
+      const groupCount = Math.ceil(count / 3)
+      const angle = (swarm ? group / groupCount : index / count) * Math.PI * 2
+      const radius = 10 + (swarm ? group * 2.3 : index % 2 * 3)
+      const type = classifications[index]
+      const spawnPosition: [number, number, number] = [
+        Math.sin(angle) * radius + (swarm ? (index % 3 - 1) * 1.3 : 0),
+        2.2 + random() * 2,
+        Math.cos(angle) * radius - 2 + (swarm ? (index % 3 - 1) * 1.3 : 0),
+      ]
+      const trajectories = ['approach', 'crossing', 'altitude', 'retreat', 'arc'] as const
+      const trajectory = trajectories[(index + Math.floor(random() * trajectories.length)) % trajectories.length]
+      const routeOffsets: Record<typeof trajectory, [number, number, number][]> = {
+        approach: [[0, 0, 0], [7, 1.2, -9], [2, 0.4, -21], [-8, -0.6, -13]],
+        crossing: [[0, 0, 0], [10, 0.8, -3], [20, 0.2, -9], [10, -0.4, -13]],
+        altitude: [[0, 0, 0], [3, 3.5, -7], [-2, 4.2, -15], [-5, 1.1, -8]],
+        retreat: [[0, 0, 0], [-6, 0.8, 6], [2, 0.4, 16], [8, -0.7, 8]],
+        arc: [[0, 0, 0], [8, 1.5, -6], [1, 2.3, -16], [-9, 0.7, -9]],
       }
-      const speedScale: Record<TrainingDifficulty, number> = {
-        Easy: 0.65,
-        Medium: 0.85,
-        Hard: 1.1,
-        Expert: 1.35,
+      const waypoints = routeOffsets[trajectory].map(([x, y, z], pointIndex) => [
+        spawnPosition[0] + x + (pointIndex === 0 ? 0 : (random() - 0.5) * 2.4),
+        spawnPosition[1] + y + (pointIndex === 0 ? 0 : (random() - 0.5) * 0.8),
+        spawnPosition[2] + z + (pointIndex === 0 ? 0 : (random() - 0.5) * 2.4),
+      ] as [number, number, number])
+      return {
+        id: `${run.id}-T-${String(index + 1).padStart(2, '0')}`,
+        type,
+        expectedClassification: type,
+        signalClassification: signalClassifications[index],
+        signalConfidence: Math.round((1 - signalErrorRate[difficulty]) * 100),
+        priority: getPriority(type),
+        spawnPosition,
+        spawnTimeMs: swarm ? group * spawnInterval[difficulty] : index * Math.floor(spawnInterval[difficulty] / 2),
+        path: {
+          trajectory,
+          speed: (0.65 + random() * 0.35) * speedScale[difficulty],
+          waypoints,
+          center: spawnPosition,
+          amplitude: swarm ? [2.2, 1.8] : [1.25, 1.1],
+          frequency: [0.24 * speedScale[difficulty], 0.21 * speedScale[difficulty]],
+          phase: swarm ? group * 0.08 + (index % 3) * 0.04 : index * 0.9 + random() * 0.35,
+          verticalAmplitude: 0.16 * speedScale[difficulty],
+          verticalFrequency: 1.7,
+          rotationAmplitude: 0.16,
+        },
       }
-      const spawnInterval: Record<TrainingDifficulty, number> = {
-        Easy: 4200,
-        Medium: 3000,
-        Hard: 2000,
-        Expert: 1000,
-      }
-      const random = createSeededRandom(run.seed)
-      const count = Math.max(1, Math.round(scenario.threatCount * countScale[difficulty]))
-      const swarm = scenario.type === 'Swarm'
-      const unknownChance: Record<TrainingDifficulty, number> = {
-        Easy: 0.16,
-        Medium: 0.27,
-        Hard: 0.36,
-        Expert: 0.44,
-      }
-      const hostileChance: Record<TrainingDifficulty, number> = {
-        Easy: 0.35,
-        Medium: 0.36,
-        Hard: 0.38,
-        Expert: 0.4,
-      }
-      const signalErrorRate: Record<TrainingDifficulty, number> = {
-        Easy: 0,
-        Medium: 0.12,
-        Hard: 0.24,
-        Expert: 0.4,
-      }
-      const classifications = Array.from({ length: count }, () => {
-        const value = random()
-        return value < hostileChance[difficulty]
-          ? 'Hostile'
-          : value < hostileChance[difficulty] + unknownChance[difficulty]
-            ? 'Unknown'
-            : 'Friendly'
-      })
-      if (!classifications.includes('Hostile')) classifications[0] = 'Hostile'
-      const signalClassifications = classifications.map((classification) => {
-        if (random() >= signalErrorRate[difficulty]) return classification
-        const alternatives = ['Friendly', 'Unknown', 'Hostile'].filter((item) => item !== classification)
-        return alternatives[Math.floor(random() * alternatives.length)]
-      })
-      return Array.from({ length: count }, (_, index) => {
-        const group = Math.floor(index / 3)
-        const groupCount = Math.ceil(count / 3)
-        const angle = (swarm ? group / groupCount : index / count) * Math.PI * 2
-        const radius = 10 + (swarm ? group * 2.3 : index % 2 * 3)
-        const type = classifications[index]
-        const spawnPosition: [number, number, number] = [
-          Math.sin(angle) * radius + (swarm ? (index % 3 - 1) * 1.3 : 0),
-          2.2 + random() * 2,
-          Math.cos(angle) * radius - 2 + (swarm ? (index % 3 - 1) * 1.3 : 0),
-        ]
-        const trajectories = ['approach', 'crossing', 'altitude', 'retreat', 'arc'] as const
-        const trajectory = trajectories[(index + Math.floor(random() * trajectories.length)) % trajectories.length]
-        const routeOffsets: Record<typeof trajectory, [number, number, number][]> = {
-          approach: [[0, 0, 0], [7, 1.2, -9], [2, 0.4, -21], [-8, -0.6, -13]],
-          crossing: [[0, 0, 0], [10, 0.8, -3], [20, 0.2, -9], [10, -0.4, -13]],
-          altitude: [[0, 0, 0], [3, 3.5, -7], [-2, 4.2, -15], [-5, 1.1, -8]],
-          retreat: [[0, 0, 0], [-6, 0.8, 6], [2, 0.4, 16], [8, -0.7, 8]],
-          arc: [[0, 0, 0], [8, 1.5, -6], [1, 2.3, -16], [-9, 0.7, -9]],
-        }
-        const waypoints = routeOffsets[trajectory].map(([x, y, z], pointIndex) => [
-          spawnPosition[0] + x + (pointIndex === 0 ? 0 : (random() - 0.5) * 2.4),
-          spawnPosition[1] + y + (pointIndex === 0 ? 0 : (random() - 0.5) * 0.8),
-          spawnPosition[2] + z + (pointIndex === 0 ? 0 : (random() - 0.5) * 2.4),
-        ] as [number, number, number])
-        return {
-          id: `${run.id}-T-${String(index + 1).padStart(2, '0')}`,
-          type,
-          expectedClassification: type,
-          signalClassification: signalClassifications[index],
-          signalConfidence: Math.round((1 - signalErrorRate[difficulty]) * 100),
-          priority: getPriority(type),
-          spawnPosition,
-          spawnTimeMs: swarm ? group * spawnInterval[difficulty] : index * Math.floor(spawnInterval[difficulty] / 2),
-          path: {
-            trajectory,
-            speed: (0.65 + random() * 0.35) * speedScale[difficulty],
-            waypoints,
-            center: spawnPosition,
-            amplitude: swarm ? [2.2, 1.8] : [1.25, 1.1],
-            frequency: [0.24 * speedScale[difficulty], 0.21 * speedScale[difficulty]],
-            phase: swarm ? group * 0.08 + (index % 3) * 0.04 : index * 0.9 + random() * 0.35,
-            verticalAmplitude: 0.16 * speedScale[difficulty],
-            verticalFrequency: 1.7,
-            rotationAmplitude: 0.16,
-          },
-        }
-      })
-    },
-    [difficulty, run.id, run.seed, scenario.threatCount, scenario.type],
-  )
+    })
+  }, [difficulty, run.id, run.seed, scenario.id, scenario.threatCount, scenario.type])
+  const [missionStarted, setMissionStarted] = useState(!isHimalayan)
+  const [showHowToPlay, setShowHowToPlay] = useState(isHimalayan)
   const [seconds, setSeconds] = useState(180)
   const [selectedId, setSelectedId] = useState(threats[1]?.id ?? threats[0].id)
   const [step, setStep] = useState(1)
@@ -169,11 +205,13 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
       currentScenarioId.current = scenario.id
       setRun({ id: createSessionId(), seed: createScenarioSeed() })
       setDifficulty(scenario.difficulty)
+      setMissionStarted(scenario.id !== 'himalayan-shield')
+      setShowHowToPlay(scenario.id === 'himalayan-shield')
     }
   }, [scenario.id, scenario.difficulty])
 
   useEffect(() => {
-    if (run.id === 'starting') return
+    if (!missionStarted || run.id === 'starting') return
     const startedAtMs = Date.now()
     startedAt.current = startedAtMs
     const startEvents: SessionEvent[] = [
@@ -203,7 +241,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     setStep(1)
     setSubmitted(false)
     setDetectionFeedback('Select a drone in the terrain to record a detection.')
-  }, [run.id, threats])
+  }, [missionStarted, run.id, threats])
 
   useEffect(() => {
     const syncFullscreen = () => setFullscreen(document.fullscreenElement === document.documentElement)
@@ -212,13 +250,13 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
   }, [])
 
   useEffect(() => {
-    if (submitted || run.id === 'starting') return
+    if (!missionStarted || submitted || run.id === 'starting') return
     const timer = window.setInterval(() => setSeconds((remaining) => Math.max(0, remaining - 1)), 1000)
     return () => window.clearInterval(timer)
-  }, [run.id, submitted])
+  }, [missionStarted, run.id, submitted])
 
   useEffect(() => {
-    if (submitted || run.id === 'starting' || seconds >= 180) return
+    if (!missionStarted || submitted || run.id === 'starting' || seconds >= 180) return
     const elapsedMs = Date.now() - startedAt.current
     const knownSpawnIds = new Set(
       eventLog.current.filter((event) => event.eventType === 'DRONE_SPAWN').map((event) => event.threatId),
@@ -240,7 +278,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
       eventLog.current = [...eventLog.current, ...newSpawnEvents]
       setEvents(eventLog.current)
     }
-  }, [run.id, seconds, submitted, threats])
+  }, [missionStarted, run.id, seconds, submitted, threats])
 
   useEffect(() => {
     if (soundOn) playSimulationTone('ambient', 0.04)
@@ -314,7 +352,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
   }
 
   const finishMission = () => {
-    if (completionGuard.current || submitted) return
+    if (!missionStarted || completionGuard.current || submitted) return
     completionGuard.current = true
     const completedAt = Date.now()
     const missionDurationMs = completedAt - startedAt.current
@@ -357,10 +395,10 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
       threats,
       events: sessionEvents,
       decisions: {
-        classification: [...sessionEvents].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED')?.actualClassification ?? '',
-        classificationThreatId: [...sessionEvents].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED')?.threatId ?? '',
-        priorityThreatId: [...sessionEvents].reverse().find((event) => event.eventType === 'THREAT_PRIORITIZED')?.threatId ?? null,
-        response: [...sessionEvents].reverse().find((event) => event.eventType === 'RESPONSE_SELECTED')?.action ?? '',
+        classification: (([...sessionEvents].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED') as (SessionEvent & { actualClassification?: string }) | undefined)?.actualClassification ?? ''),
+        classificationThreatId: (([...sessionEvents].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED') as (SessionEvent & { threatId?: string }) | undefined)?.threatId ?? ''),
+        priorityThreatId: (([...sessionEvents].reverse().find((event) => event.eventType === 'THREAT_PRIORITIZED') as (SessionEvent & { threatId?: string }) | undefined)?.threatId ?? null),
+        response: (([...sessionEvents].reverse().find((event) => event.eventType === 'RESPONSE_SELECTED') as (SessionEvent & { action?: string }) | undefined)?.action ?? ''),
       },
       scoreRule: 'event-performance-v3',
       scoreBreakdown,
@@ -376,8 +414,8 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
   }
 
   useEffect(() => {
-    if (seconds === 0 && !submitted) finishMission()
-  }, [seconds, submitted])
+    if (missionStarted && seconds === 0 && !submitted) finishMission()
+  }, [missionStarted, seconds, submitted])
 
   const toggleFullscreen = async () => {
     setFullscreenError('')
@@ -390,12 +428,35 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     }
   }
 
+  const beginSimulation = () => {
+    if (missionStarted) {
+      setShowHowToPlay(false)
+      return
+    }
+    setRun({ id: createSessionId(), seed: createScenarioSeed() })
+    setMissionStarted(true)
+    setShowHowToPlay(false)
+  }
+
   const minutes = Math.floor(seconds / 60).toString().padStart(2, '0')
   const remainingSeconds = (seconds % 60).toString().padStart(2, '0')
   const selectedEvents = events.filter((event) => event.threatId === selectedThreat.id)
   const selectedClassification = [...selectedEvents].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED')
   const selectedPriority = [...selectedEvents].reverse().find((event) => event.eventType === 'THREAT_PRIORITIZED')
   const selectedResponse = [...selectedEvents].reverse().find((event) => event.eventType === 'RESPONSE_SELECTED')
+  const traineeClassification = selectedClassification?.actualClassification
+  const selectedAssessment = getHimalayanThreatAssessment(isHimalayan
+    ? { ...selectedThreat, expectedClassification: traineeClassification ?? 'Unknown' }
+    : selectedThreat)
+  const generatedStatus = detectedSet.has(selectedThreat.id) ? 'DETECTED' : 'UNDETECTED'
+  const selectedDistanceMeters = Math.max(120, Math.round(Math.hypot(selectedThreat.spawnPosition[0], selectedThreat.spawnPosition[2]) * 12))
+  const selectedHeading = (() => {
+    const waypoints = selectedThreat.path.waypoints ?? [selectedThreat.spawnPosition, selectedThreat.spawnPosition]
+    const start = waypoints[0]
+    const end = waypoints[Math.min(1, waypoints.length - 1)]
+    const angle = Math.atan2(end[0] - start[0], end[2] - start[2])
+    return Math.round((angle * 180) / Math.PI + 360) % 360
+  })()
   const contacts = threats.map((threat) => ({
     id: threat.id,
     type: threat.type,
@@ -415,6 +476,105 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     },
   })).filter((contact) => spawnedSet.has(contact.id))
 
+  const howToContent = (
+    <main className={styles.howToScreen} role="dialog" aria-modal="true" aria-labelledby="how-to-title">
+      <div className={styles.howToInner}>
+        <header className={styles.howToHeader}>
+          <p className="eyebrow">GARUDA / PLAYER GUIDE</p>
+          <h1 id="how-to-title">HOW TO PLAY</h1>
+          <p>HIMALAYAN SHIELD — LIVE TRAINING SIMULATION</p>
+        </header>
+
+        <section className={styles.instructionMap} aria-label="Annotated simulation map preview">
+          <div className={styles.mapPreviewHeader}>
+            <div><b>01</b><span><strong>SCENARIO INFO</strong><small>{scenario.time} · {scenario.terrain} · {scenario.visibility}</small></span></div>
+            <span className={styles.previewTag}>HIGH-ALTITUDE TRAINING RANGE</span>
+          </div>
+          <div className={styles.mapPreviewGrid}>
+            <aside className={styles.previewThreatList}>
+              <p><b>02</b> THREAT LIST</p>
+              <span><i /> T-01 <small>CONTACT</small></span>
+              <span><i /> T-02 <small>CONTACT</small></span>
+              <span><i /> T-03 <small>CONTACT</small></span>
+              <small>Shows active contacts</small>
+            </aside>
+            <div className={styles.previewScene}>
+              <TrainingSimulationScene
+                contacts={[]}
+                terrain={scenario.terrain}
+                time={scenario.time}
+                visibility={scenario.visibility}
+              />
+              <span className={styles.sceneCallout}><b>03</b> 3D SIMULATION</span>
+              <span className={styles.assetCallout}><b>06</b> PROTECTED ASSETS</span>
+            </div>
+            <aside className={styles.previewTarget}>
+              <p><b>04</b> SELECTED TARGET</p>
+              <UavReference type="Quadcopter UAV" />
+              <span>Details about the selected contact</span>
+            </aside>
+          </div>
+          <div className={styles.previewWorkflow}>
+            <p><b>05</b> WORKFLOW</p>
+            <span>DETECT <i>›</i> CLASSIFY <i>›</i> PRIORITIZE <i>›</i> RESPOND</span>
+          </div>
+          <p className={styles.assetNote}>These marked locations are critical assets. Monitor threats approaching them.</p>
+        </section>
+
+        <section className={styles.howToSteps} aria-label="Mission steps">
+          <div className={styles.instructionSectionTitle}><span>MISSION FLOW</span><small>Eight simple steps</small></div>
+          <div className={styles.stepGrid}>
+            {[
+              ['SCAN', 'Look across the Himalayan valley and search for moving drone contacts.'],
+              ['SELECT', 'Click a drone in the scene or select a contact from the Threat List.'],
+              ['DETECT', 'Select the contact to record that you detected it.'],
+              ['CLASSIFY', 'Identify what type of threat/contact it is.'],
+              ['PRIORITIZE', 'Decide which threat needs attention first.'],
+              ['RESPOND', 'Choose the appropriate training response.'],
+              ['KEEP WATCHING', 'Other drones keep moving while you work on one target.'],
+              ['COMPLETE', 'Finish the mission and review your performance in AAR.'],
+            ].map(([title, description], index) => (
+              <article className={styles.stepItem} key={title}>
+                <b>{String(index + 1).padStart(2, '0')}</b>
+                <div><strong>{title}</strong><p>{description}</p></div>
+              </article>
+            ))}
+          </div>
+          <div className={styles.coreRule}>
+            <strong>IMPORTANT</strong>
+            <p>Selecting one drone does <b>NOT</b> stop the other drones.</p>
+            <span>Keep scanning the whole map.</span>
+          </div>
+        </section>
+
+        <section className={styles.missionGuide}>
+          <article>
+            <div className={styles.instructionSectionTitle}><span>MISSION GOAL</span></div>
+            <p>Find incoming drone threats, understand their behavior, protect critical areas and make the best response decision.</p>
+            <strong className={styles.goodPerformanceTitle}>GOOD PERFORMANCE</strong>
+            <ul className={styles.performanceList}>
+              {['Detect threats quickly', 'Classify accurately', 'Prioritize important threats', 'Respond appropriately', 'Protect critical assets'].map((item) => (
+                <li key={item}><Check size={14} />{item}</li>
+              ))}
+            </ul>
+          </article>
+          <article className={styles.controlsGuide}>
+            <div className={styles.instructionSectionTitle}><span>CONTROLS</span></div>
+            <div><b>MOUSE</b><span>Drag to orbit · Scroll to zoom · Click a drone to select</span></div>
+            <div><b>KEYBOARD</b><span>WASD or arrow keys to move around the range</span></div>
+          </article>
+        </section>
+
+        <footer className={styles.howToActions}>
+          {!missionStarted && <Link href={`/soldier/training/${scenario.id}/briefing`} className="button button-outline">Back to briefing</Link>}
+          <button className="button" onClick={beginSimulation}>
+            {missionStarted ? 'BACK TO SIMULATION' : 'START SIMULATION'} <ArrowRight size={16} />
+          </button>
+        </footer>
+      </div>
+    </main>
+  )
+
   const content = (
     <main className="page-content simulation-page">
       <PageHeader
@@ -423,9 +583,10 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
         subtitle={`Training only · ${scenario.terrain} terrain · ${spawnedSet.size} active / ${threats.length} total contacts`}
         action={
           <div className="simulation-top-controls">
-            <span className={`live-pill ${seconds < 30 ? 'critical' : ''}`}>
+            {missionStarted && <span className={`live-pill ${seconds < 30 ? 'critical' : ''}`}>
               <TimerReset size={14} /> {minutes}:{remainingSeconds}
-            </span>
+            </span>}
+            {isHimalayan && missionStarted && <button className="table-action" onClick={() => setShowHowToPlay(true)}>How to play</button>}
             <label className="terrain-chip">
               Difficulty
               <select
@@ -463,19 +624,42 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
       <div className="simulation-layout">
         <Panel className="threat-list">
           <p className="panel-label">THREAT LIST ({threats.length})</p>
-          {threats.map((threat) => (
-            <button
-              key={threat.id}
-              className={threat.id === selectedId ? 'selected' : ''}
-              onClick={() => selectThreat(threat.id)}
-            >
-              <span className={detectedSet.has(threat.id) ? 'green' : 'amber'}>▲</span>
-              {threat.id}
-              <small>
-            {!spawnedSet.has(threat.id) ? 'INCOMING' : detectedSet.has(threat.id) ? 'DETECTED' : 'TRACK PENDING'}
-              </small>
-            </button>
-          ))}
+          {threats.map((threat) => {
+            const threatEvents = events.filter((event) => event.threatId === threat.id)
+            const classified = threatEvents.some((event) => event.eventType === 'DRONE_CLASSIFIED')
+            const prioritized = threatEvents.some((event) => event.eventType === 'THREAT_PRIORITIZED')
+            const responded = threatEvents.some((event) => event.eventType === 'RESPONSE_SELECTED')
+            const visibleClassification = [...threatEvents].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED')?.actualClassification
+            const assessment = getHimalayanThreatAssessment(isHimalayan
+              ? { ...threat, expectedClassification: typeof visibleClassification === 'string' ? visibleClassification : 'Unknown' }
+              : threat)
+            const state = isHimalayan
+              ? !detectedSet.has(threat.id) ? 'CONTACT'
+                : !classified ? 'CLASSIFICATION PENDING'
+                  : !prioritized ? 'CLASSIFIED'
+                    : !responded ? 'PRIORITY' : 'RESPONDING'
+              : !spawnedSet.has(threat.id) ? 'CONTACT'
+                : detectedSet.has(threat.id)
+                  ? threat.expectedClassification === 'Hostile' && assessment.status !== 'Far' ? 'PRIORITY' : 'DETECTED'
+                  : 'CLASSIFICATION PENDING'
+            const visiblePriority = isHimalayan
+              ? !detectedSet.has(threat.id) ? 'UNCONFIRMED' : !classified ? 'AWAITING CLASSIFICATION' : assessment.priority.toUpperCase()
+              : assessment.priority
+            return (
+              <button
+                key={threat.id}
+                className={threat.id === selectedId ? 'selected' : ''}
+                onClick={() => selectThreat(threat.id)}
+              >
+                <span className={detectedSet.has(threat.id) ? 'green' : 'amber'}>▲</span>
+                <div>
+                  <strong>{threat.id}</strong>
+                  <small>{Math.max(120, Math.round(Math.hypot(threat.spawnPosition[0], threat.spawnPosition[2]) * 12))} m · {state}</small>
+                </div>
+                <small className="threat-status-label">{visiblePriority}</small>
+              </button>
+            )
+          })}
         </Panel>
         <Panel className={`tactical-map ${styles.scenePanel}`}>
           <TrainingSimulationScene
@@ -483,8 +667,8 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
             terrain={scenario.terrain}
             time={scenario.time}
             visibility={scenario.visibility}
-            missionStartedAt={startedAt.current}
-            onThreatDetected={detectThreat}
+            missionStartedAt={missionStarted ? startedAt.current : undefined}
+            onThreatDetected={selectThreat}
           />
           <div className={styles.sceneHud}>
             <span>GARUDA / 3D TRAINING RANGE</span>
@@ -498,44 +682,49 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
         <Panel className="target-details">
           <p className="panel-label">SELECTED TARGET</p>
           <strong className="target-id">⌖ {selectedThreat.id}</strong>
-        <div className="target-status">{selectedClassification?.actualClassification ?? 'Unclassified contact'}</div>
-          {[
-            ['Type', 'Quadcopter / UAV'],
-          ['Classification', selectedClassification
-            ? selectedClassification.actualClassification ?? 'Unknown'
+          <div className="target-status">
+            {isHimalayan
+              ? generatedStatus
               : detectedSet.has(selectedThreat.id)
-                ? 'Awaiting assessment'
-                : 'Pending detection'],
-            ['Sensor estimate', detectedSet.has(selectedThreat.id)
-              ? `${selectedThreat.signalClassification} · ${selectedThreat.signalConfidence}% confidence`
-              : 'No track yet'],
-            ['Distance', `${320 + threats.indexOf(selectedThreat) * 110} m`],
-            ['Speed', `${Math.round(selectedThreat.path.speed * 45)} m/s`],
+              ? selectedClassification?.actualClassification ?? 'CLASSIFICATION PENDING'
+              : 'UNDETECTED'}
+          </div>
+          <UavReference type={selectedThreat.type} />
+          {[
+            ['Threat ID', selectedThreat.id],
+            ['Contact status', generatedStatus],
+            ['Drone category', selectedThreat.type],
+            ['Distance', `${selectedDistanceMeters} m`],
             ['Altitude', `${Math.round(selectedThreat.spawnPosition[1] * 100)} m`],
-            ['Heading', `${(Math.round((Math.atan2(selectedThreat.path.waypoints[1][0] - selectedThreat.path.waypoints[0][0], selectedThreat.path.waypoints[1][2] - selectedThreat.path.waypoints[0][2]) * 180 / Math.PI) + 360) % 360)}°`],
-            ['Threat Level', selectedClassification
-              ? getPriority(selectedClassification.actualClassification ?? 'Unknown')
-              : 'Unconfirmed'],
+            ['Speed', `${Math.round(selectedThreat.path.speed ?? 0)} m/s`],
+            ['Heading', isHimalayan && !detectedSet.has(selectedThreat.id) ? 'Awaiting detection' : `${selectedHeading}°`],
+            ['Trajectory', isHimalayan && !detectedSet.has(selectedThreat.id) ? 'Unconfirmed' : `${selectedAssessment.status} · ${selectedAssessment.zoneName}`],
+            ['Threat assessment', isHimalayan
+              ? !detectedSet.has(selectedThreat.id) ? 'Unconfirmed' : !traineeClassification ? 'Awaiting classification' : selectedAssessment.priority
+              : selectedAssessment.priority],
+            ['Sensor confidence', `${selectedThreat.signalConfidence}%`],
+            ['Detection time', selectedEvents.find((event) => event.eventType === 'DRONE_DETECTED')?.timestamp ? new Date(selectedEvents.find((event) => event.eventType === 'DRONE_DETECTED')!.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Not yet detected'],
+            ['Classification', selectedClassification?.actualClassification ?? (detectedSet.has(selectedThreat.id) ? 'Pending' : 'Not detected')],
           ].map(([label, value]) => (
-            <div key={label}><span>{label}</span><b>{value}</b></div>
+            <div key={label}><span>{label}</span><b>{String(value)}</b></div>
           ))}
         </Panel>
       </div>
       <div className="workflow">
-        {['DETECT', 'CLASSIFY', 'PRIORITIZE', 'DECISION'].map((label, index) => (
+        {['DETECT', 'CLASSIFY', 'PRIORITIZE', 'RESPOND'].map((label, index) => (
           <button
             key={label}
-            className={`${step === index + 1 ? 'active' : ''} ${index + 1 > step ? 'locked' : ''}`}
+            className={`${styles.workflowStep} ${step === index + 1 ? 'active' : ''} ${index + 1 > step ? 'locked' : ''}`}
             disabled={index + 1 > step}
             onClick={() => setStep(index + 1)}
           >
-            <b>{index + 1}</b>{label}
+            <b>{String(index + 1).padStart(2, '0')}</b><span>{label}</span>
             <small>{index + 1 > step ? 'LOCKED' : index + 1 < step ? 'COMPLETED' : 'ACTIVE'}</small>
           </button>
         ))}
         <Panel className="decision-panel">
           <p className="panel-label">
-            {step === 1 ? 'DETECTION' : step === 2 ? `CLASSIFY ${selectedThreat.id}` : step === 3 ? 'PRIORITIZE TARGET' : 'DECISION'}
+            {step === 1 ? 'DETECTION' : step === 2 ? `CLASSIFY ${selectedThreat.id}` : step === 3 ? 'PRIORITIZE TARGET' : 'RESPOND'}
           </p>
           {step === 1 && (
             <p className="muted">
@@ -560,7 +749,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
                       result,
                     })
                     if (result === 'incorrect' && soundOn) playSimulationTone('alert')
-                    setStep(1)
+                    setStep(3)
                   }}
                 >
                   {choice}
@@ -577,9 +766,9 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
                   onClick={() => {
                     appendEvent('THREAT_PRIORITIZED', selectedThreat.id, {
                       actualPriority: priority,
-                      result: priority === selectedThreat.priority ? 'correct' : 'incorrect',
+                      result: priority === (isHimalayan ? selectedAssessment.priority : selectedThreat.priority) ? 'correct' : 'incorrect',
                     })
-                    if (priority !== selectedThreat.priority && soundOn) playSimulationTone('alert')
+                    if (priority !== (isHimalayan ? selectedAssessment.priority : selectedThreat.priority) && soundOn) playSimulationTone('alert')
                     setStep(4)
                   }}
                 >
@@ -613,7 +802,11 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
             </div>
           )}
         </Panel>
-        <button className="button submit-response" disabled={step < 4 || !selectedResponse || submitted} onClick={finishMission}>
+        <button
+          className="button submit-response"
+          disabled={submitted || !selectedResponse || (!isHimalayan && detectedSet.size !== threats.length)}
+          onClick={finishMission}
+        >
           {submitted ? 'Response submitted' : 'Submit response'} <ArrowRight size={15} />
         </button>
       </div>
@@ -639,9 +832,8 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
 
   return (
     <PortalShell role="soldier">
-      <div className={`${fullscreen ? 'simulation-fullscreen' : ''} ${fullscreen ? styles.immersive : ''}`}>
-        {content}
-      </div>
+      {missionStarted && <div className={`${fullscreen ? 'simulation-fullscreen' : ''} ${fullscreen ? styles.immersive : ''}`}>{content}</div>}
+      {isHimalayan && showHowToPlay && howToContent}
     </PortalShell>
   )
 }

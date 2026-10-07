@@ -1,9 +1,30 @@
-export type Role = 'trainee' | 'admin'
-export type Scenario = { id: string; name: string; type: string; terrain: string; time: string; visibility: string; difficulty: 'Easy' | 'Medium' | 'Hard'; threatCount: number; description: string; image: string; status: 'Active' | 'Locked' | 'Complete' }
-export type Trainee = { id: string; name: string; unit: string; readiness: number; lastActive: string; status: string; role: string }
+﻿export type Role = 'trainee' | 'admin'
+export type Scenario = {
+  id: string
+  name: string
+  type: string
+  terrain: string
+  time: string
+  visibility: string
+  difficulty: 'Easy' | 'Medium' | 'Hard'
+  threatCount: number
+  description: string
+  image: string
+  status: 'Active' | 'Locked' | 'Complete'
+}
+export type Trainee = {
+  id: string
+  name: string
+  unit: string
+  readiness: number
+  lastActive: string
+  status: string
+  role: string
+}
 export type LanguageCode = 'en' | 'hi' | 'mr' | 'bn' | 'ta' | 'te' | 'kn' | 'gu' | 'pa' | 'ml' | 'or' | 'as' | 'ur'
 export type NavItem = { label: string; href: string; icon: string }
 export type Metric = { label: string; value: string; trend?: string; tone?: 'teal' | 'amber' | 'red' }
+
 export const IMAGE_HERO = 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-twSJaalZ28JVkZXFuQRnbNdvWcNWR5.png'
 export const IMAGE_TERRAIN = 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/image-9G1GJwXkBFtPfbCc98WlagmPYiWC5k.png'
 export const IMAGE_MAP = 'https://images.unsplash.com/photo-1569336415962-a4bd9f69c07b?auto=format&fit=crop&w=1600&q=85'
@@ -12,11 +33,110 @@ export const IMAGE_URBAN = 'https://images.unsplash.com/photo-1519608487953-e999
 export const IMAGE_NIGHT = 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=900&q=85'
 export const IMAGE_DESERT = 'https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=900&q=85'
 export const IMAGE_MOUNTAIN = 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=900&q=85'
-export const languages = [{code:'en', label:'English'}, {code:'hi', label:'हिन्दी'}, {code:'mr', label:'मराठी'}, {code:'bn', label:'বাংলা'}, {code:'ta', label:'தமிழ்'}, {code:'te', label:'తెలుగు'}, {code:'kn', label:'ಕನ್ನಡ'}, {code:'gu', label:'ગુજરાતી'}, {code:'pa', label:'ਪੰਜਾਬੀ'}, {code:'ml', label:'മലയാളം'}, {code:'or', label:'ଓଡ଼ିଆ'}, {code:'as', label:'অসমীয়া'}, {code:'ur', label:'اردو'}] as const
-export const copy = { en: { home:'Home', features:'Features', useCases:'Use Cases', technology:'Technology', about:'About', login:'Login', getStarted:'Get Started', dashboard:'Dashboard', training:'Training', twin:'Digital Twin', aar:'AAR', progress:'Progress', profile:'Profile', settings:'Settings', logout:'Logout' }, hi: { home:'होम', features:'विशेषताएँ', useCases:'उपयोग', technology:'तकनीक', about:'परिचय', login:'लॉगिन', getStarted:'शुरू करें', dashboard:'डैशबोर्ड', training:'प्रशिक्षण', twin:'डिजिटल ट्विन', aar:'AAR', progress:'प्रगति', profile:'प्रोफ़ाइल', settings:'सेटिंग्स', logout:'लॉगआउट' } } as const
+
+export const languages = [
+  { code: 'en', label: 'English' },
+  { code: 'hi', label: 'हिन्दी' },
+  { code: 'mr', label: 'मराठी' },
+  { code: 'bn', label: 'বাংলा' },
+  { code: 'ta', label: 'தமிழ்' },
+  { code: 'te', label: 'తెలుగు' },
+  { code: 'kn', label: 'ಕನ್ನಡ' },
+  { code: 'gu', label: 'ગુજરાતી' },
+  { code: 'pa', label: 'ਪੰਜਾਬੀ' },
+  { code: 'ml', label: 'മലയാളം' },
+  { code: 'or', label: 'ଓଡ଼ିଆ' },
+  { code: 'as', label: 'অসমীয়া' },
+  { code: 'ur', label: 'اردو' },
+] as const
+
+export const copy = {
+  en: {
+    home: 'Home',
+    features: 'Features',
+    useCases: 'Use Cases',
+    technology: 'Technology',
+    about: 'About',
+    login: 'Login',
+    getStarted: 'Get Started',
+    dashboard: 'Dashboard',
+    training: 'Training',
+    twin: 'Digital Twin',
+    aar: 'AAR',
+    progress: 'Progress',
+    profile: 'Profile',
+    settings: 'Settings',
+    logout: 'Logout',
+  },
+  hi: {
+    home: 'होम',
+    features: 'विशेषताएँ',
+    useCases: 'उपयोग',
+    technology: 'तकनीक',
+    about: 'परिचय',
+    login: 'लॉगिन',
+    getStarted: 'शुरू करें',
+    dashboard: 'डैशबोर्ड',
+    training: 'प्रशिक्षण',
+    twin: 'डिजिटल ट्विन',
+    aar: 'AAR',
+    progress: 'प्रगति',
+    profile: 'प्रोफ़ाइल',
+    settings: 'सेटिंग्स',
+    logout: 'लॉगआउट',
+  },
+} as const
+
 export const defaultCopy = copy.en
+
 export const scenarios: Scenario[] = [
-['himalayan-shield','Himalayan Shield','Air','High Altitude','Dawn','Degraded','Hard',6,'High-altitude drone intrusion across a sensitive mountain corridor.',IMAGE_MOUNTAIN,'Active'],['desert-sentinel','Desert Sentinel','Land','Desert','Night','Clear','Medium',4,'Border surveillance exercise across a remote desert installation.',IMAGE_DESERT,'Active'],['coastal-watch','Coastal Watch','Coastal','Coastline','Day','Clear','Medium',5,'Maritime surveillance around a protected coastal approach.',IMAGE_COAST,'Active'],['urban-vigilance','Urban Vigilance','Urban','Urban','Dusk','Reduced','Hard',7,'Dense city infrastructure and ambiguous civilian air traffic.',IMAGE_URBAN,'Active'],['night-watch','Night Watch','Night','Rural','Night','Low Light','Hard',5,'Track threats through limited visibility and intermittent sensor loss.',IMAGE_NIGHT,'Active'],['swarm-intercept','Swarm Intercept','Swarm','Open Land','Day','Clear','Hard',12,'Coordinate classification across a rapidly splitting swarm.',IMAGE_HERO,'Active'],['mountain-edge','Mountain Edge','Land','Highlands','Dawn','Clear','Medium',3,'Guard a mountain pass against low-signature intrusion.',IMAGE_MOUNTAIN,'Active'],['border-horizon','Border Horizon','Land','Border','Day','Haze','Medium',6,'Maintain a layered response along a wide frontier horizon.',IMAGE_DESERT,'Active'],['valley-sentinel','Valley Sentinel','Air','Valley','Dawn','Fog','Hard',8,'Separate friendly aircraft from threats in a fog-filled valley.',IMAGE_MOUNTAIN,'Active'],['desert-storm','Desert Storm','Swarm','Desert','Day','Dust','Hard',10,'Adapt to dust interference during a coordinated swarm event.',IMAGE_DESERT,'Active'],['coastal-guardian','Coastal Guardian','Coastal','Coastline','Dusk','Clear','Easy',3,'Monitor a coastal installation with a clean sensor picture.',IMAGE_COAST,'Complete'],['urban-shield','Urban Shield','Urban','Urban','Day','Haze','Medium',5,'Protect a critical urban asset while minimizing false positives.',IMAGE_URBAN,'Active'],['high-pass','High Pass','Air','High Altitude','Night','Snow','Hard',4,'Classify fast-moving aerial targets above the cloud line.',IMAGE_MOUNTAIN,'Locked'],['silent-night','Silent Night','Night','Rural','Night','Blackout','Hard',6,'Resolve a silent sensor picture using disciplined search patterns.',IMAGE_NIGHT,'Active'],['drone-corridor','Drone Corridor','Air','Industrial','Day','Clear','Easy',4,'Build a reliable track across a managed drone corridor.',IMAGE_URBAN,'Complete'],['rapid-swarm','Rapid Swarm','Swarm','Open Land','Dusk','Reduced','Hard',14,'Prioritize a high-tempo multi-axis swarm attack.',IMAGE_HERO,'Locked'],['ridge-watch','Ridge Watch','Land','Highlands','Day','Clear','Medium',5,'Hold a ridge line while threat vectors shift continuously.',IMAGE_MOUNTAIN,'Active'],['frontier-scan','Frontier Scan','Urban','Border','Dawn','Haze','Easy',3,'Practice a measured scan of a remote frontier sector.',IMAGE_DESERT,'Complete']].map((s) => ({id:s[0],name:s[1],type:s[2],terrain:s[3],time:s[4],visibility:s[5],difficulty:s[6] as Scenario['difficulty'],threatCount:s[7],description:s[8],image:s[9],status:s[10] as Scenario['status']}))
-export const trainees: Trainee[] = [['arjun-singh','Arjun Singh','1 PARA',78,'10 Oct 2024','Training','Rifleman'],['rahul-verma','Rahul Verma','4 RAJ RIF',64,'10 Oct 2024','Review','Operator'],['vikram-patil','Vikram Patil','MARCOS',82,'10 Oct 2024','Training','Team Lead'],['aditya-rao','Aditya Rao','GARUD',51,'9 Oct 2024','At Risk','Operator'],['karan-mehta','Karan Mehta','9 PARA',71,'9 Oct 2024','Training','Rifleman'],['sneha-nair','Sneha Nair','IAF',88,'8 Oct 2024','Training','Analyst']].map(t=>({id:t[0],name:t[1],unit:t[2],readiness:t[3],lastActive:t[4],status:t[5],role:t[6]}))
-export const adminNav = [{label:'Dashboard',href:'/admin/dashboard',icon:'layout-dashboard'},{label:'Trainees',href:'/admin/trainees',icon:'users'},{label:'Live Training',href:'/admin/live-training',icon:'crosshair'},{label:'Analytics',href:'/admin/analytics',icon:'chart-no-axes-combined'},{label:'Scenarios',href:'/admin/scenarios',icon:'layers-3'},{label:'Reports',href:'/admin/reports',icon:'file-text'},{label:'Settings',href:'/admin/settings',icon:'settings'},{label:'Notifications',href:'/admin/notifications',icon:'bell'},{label:'GARUDA DRISHTI',href:'/admin/drishti',icon:'bot'}]
-export const soldierNav = [{label:'Dashboard',href:'/soldier/dashboard',icon:'layout-dashboard'},{label:'Training',href:'/soldier/training',icon:'target'},{label:'Digital Twin',href:'/soldier/digital-twin',icon:'brain-circuit'},{label:'AAR',href:'/soldier/aar/session-08-241',icon:'book-open'},{label:'Progress',href:'/soldier/progress',icon:'chart-no-axes-combined'},{label:'Profile',href:'/soldier/profile',icon:'user-round'},{label:'Settings',href:'/soldier/settings',icon:'settings'},{label:'Notifications',href:'/soldier/notifications',icon:'bell'},{label:'GARUDA DRISHTI',href:'/soldier/drishti',icon:'bot'}]
+  { id: 'himalayan-shield', name: 'Himalayan Shield', type: 'Air', terrain: 'High Altitude', time: 'Dawn', visibility: 'Degraded', difficulty: 'Hard', threatCount: 6, description: 'High-altitude drone intrusion across a sensitive mountain corridor.', image: IMAGE_MOUNTAIN, status: 'Active' },
+  { id: 'desert-sentinel', name: 'Desert Sentinel', type: 'Land', terrain: 'Desert', time: 'Night', visibility: 'Clear', difficulty: 'Medium', threatCount: 4, description: 'Border surveillance exercise across a remote desert installation.', image: IMAGE_DESERT, status: 'Active' },
+  { id: 'coastal-watch', name: 'Coastal Watch', type: 'Coastal', terrain: 'Coastline', time: 'Day', visibility: 'Clear', difficulty: 'Medium', threatCount: 5, description: 'Maritime surveillance around a protected coastal approach.', image: IMAGE_COAST, status: 'Active' },
+  { id: 'urban-vigilance', name: 'Urban Vigilance', type: 'Urban', terrain: 'Urban', time: 'Dusk', visibility: 'Reduced', difficulty: 'Hard', threatCount: 7, description: 'Dense city infrastructure and ambiguous civilian air traffic.', image: IMAGE_URBAN, status: 'Active' },
+  { id: 'night-watch', name: 'Night Watch', type: 'Night', terrain: 'Rural', time: 'Night', visibility: 'Low Light', difficulty: 'Hard', threatCount: 5, description: 'Track threats through limited visibility and intermittent sensor loss.', image: IMAGE_NIGHT, status: 'Active' },
+  { id: 'swarm-intercept', name: 'Swarm Intercept', type: 'Swarm', terrain: 'Open Land', time: 'Day', visibility: 'Clear', difficulty: 'Hard', threatCount: 12, description: 'Coordinate classification across a rapidly splitting swarm.', image: IMAGE_HERO, status: 'Active' },
+  { id: 'mountain-edge', name: 'Mountain Edge', type: 'Land', terrain: 'Highlands', time: 'Dawn', visibility: 'Clear', difficulty: 'Medium', threatCount: 3, description: 'Guard a mountain pass against low-signature intrusion.', image: IMAGE_MOUNTAIN, status: 'Active' },
+  { id: 'border-horizon', name: 'Border Horizon', type: 'Land', terrain: 'Border', time: 'Day', visibility: 'Haze', difficulty: 'Medium', threatCount: 6, description: 'Maintain a layered response along a wide frontier horizon.', image: IMAGE_DESERT, status: 'Active' },
+  { id: 'valley-sentinel', name: 'Valley Sentinel', type: 'Air', terrain: 'Valley', time: 'Dawn', visibility: 'Fog', difficulty: 'Hard', threatCount: 8, description: 'Separate friendly aircraft from threats in a fog-filled valley.', image: IMAGE_MOUNTAIN, status: 'Active' },
+  { id: 'desert-storm', name: 'Desert Storm', type: 'Swarm', terrain: 'Desert', time: 'Day', visibility: 'Dust', difficulty: 'Hard', threatCount: 10, description: 'Adapt to dust interference during a coordinated swarm event.', image: IMAGE_DESERT, status: 'Active' },
+  { id: 'coastal-guardian', name: 'Coastal Guardian', type: 'Coastal', terrain: 'Coastline', time: 'Dusk', visibility: 'Clear', difficulty: 'Easy', threatCount: 3, description: 'Monitor a coastal installation with a clean sensor picture.', image: IMAGE_COAST, status: 'Complete' },
+  { id: 'urban-shield', name: 'Urban Shield', type: 'Urban', terrain: 'Urban', time: 'Day', visibility: 'Haze', difficulty: 'Medium', threatCount: 5, description: 'Protect a critical urban asset while minimizing false positives.', image: IMAGE_URBAN, status: 'Active' },
+  { id: 'high-pass', name: 'High Pass', type: 'Air', terrain: 'Highland', time: 'Dawn', visibility: 'Clear', difficulty: 'Hard', threatCount: 4, description: 'Handle a narrow ridgeline breach with uncertain visual confirmation.', image: IMAGE_MOUNTAIN, status: 'Active' },
+  { id: 'ridge-keeper', name: 'Ridge Keeper', type: 'Land', terrain: 'High Pass', time: 'Dawn', visibility: 'Fog', difficulty: 'Easy', threatCount: 2, description: 'Secure a narrow mountain pass while the weather shifts.', image: IMAGE_MOUNTAIN, status: 'Locked' },
+  { id: 'storm-window', name: 'Storm Window', type: 'Land', terrain: 'Desert', time: 'Night', visibility: 'Dust', difficulty: 'Hard', threatCount: 8, description: 'Keep critical supply routes alive under dust and sensor noise.', image: IMAGE_DESERT, status: 'Locked' },
+  { id: 'signal-break', name: 'Signal Break', type: 'Urban', terrain: 'Urban', time: 'Night', visibility: 'Blackout', difficulty: 'Hard', threatCount: 9, description: 'Recover situational awareness after a rapid signal blackout in the city.', image: IMAGE_URBAN, status: 'Locked' },
+]
+
+export const trainees: Trainee[] = [
+  { id: 'arjun-singh', name: 'Arjun Singh', unit: '1 PARA', readiness: 78, lastActive: '10 Oct 2024', status: 'Training', role: 'Rifleman' },
+  { id: 'rahul-verma', name: 'Rahul Verma', unit: '4 RAJ RIF', readiness: 64, lastActive: '10 Oct 2024', status: 'Review', role: 'Operator' },
+  { id: 'vikram-patil', name: 'Vikram Patil', unit: 'MARCOS', readiness: 82, lastActive: '10 Oct 2024', status: 'Training', role: 'Team Lead' },
+  { id: 'aditya-rao', name: 'Aditya Rao', unit: 'GARUD', readiness: 51, lastActive: '9 Oct 2024', status: 'At Risk', role: 'Operator' },
+  { id: 'karan-mehta', name: 'Karan Mehta', unit: '9 PARA', readiness: 71, lastActive: '9 Oct 2024', status: 'Training', role: 'Rifleman' },
+  { id: 'sneha-nair', name: 'Sneha Nair', unit: 'IAF', readiness: 88, lastActive: '8 Oct 2024', status: 'Training', role: 'Analyst' },
+]
+
+export const adminNav = [
+  { label: 'Dashboard', href: '/admin/dashboard', icon: 'layout-dashboard' },
+  { label: 'Trainees', href: '/admin/trainees', icon: 'users' },
+  { label: 'Live Training', href: '/admin/live-training', icon: 'crosshair' },
+  { label: 'Analytics', href: '/admin/analytics', icon: 'chart-no-axes-combined' },
+  { label: 'Scenarios', href: '/admin/scenarios', icon: 'layers-3' },
+  { label: 'Reports', href: '/admin/reports', icon: 'file-text' },
+  { label: 'Settings', href: '/admin/settings', icon: 'settings' },
+  { label: 'Notifications', href: '/admin/notifications', icon: 'bell' },
+  { label: 'GARUDA DRISHTI', href: '/admin/drishti', icon: 'bot' },
+]
+
+export const soldierNav = [
+  { label: 'Dashboard', href: '/soldier/dashboard', icon: 'layout-dashboard' },
+  { label: 'Training', href: '/soldier/training', icon: 'target' },
+  { label: 'Digital Twin', href: '/soldier/digital-twin', icon: 'brain-circuit' },
+  { label: 'AAR', href: '/soldier/aar/session-08-241', icon: 'book-open' },
+  { label: 'Progress', href: '/soldier/progress', icon: 'chart-no-axes-combined' },
+  { label: 'Profile', href: '/soldier/profile', icon: 'user-round' },
+  { label: 'Settings', href: '/soldier/settings', icon: 'settings' },
+  { label: 'Notifications', href: '/soldier/notifications', icon: 'bell' },
+  { label: 'GARUDA DRISHTI', href: '/soldier/drishti', icon: 'bot' },
+]

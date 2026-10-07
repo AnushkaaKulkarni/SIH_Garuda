@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   calculateSessionScore,
+  generateHimalayanThreats,
+  getHimalayanThreatAssessment,
   getWhatIfOpportunity,
   type SessionEvent,
   type SessionThreat,
@@ -170,4 +172,42 @@ test('missed-contact What-If does not place detection before its spawn', () => {
   assert.equal(opportunity.hypotheticalEvent.eventType, 'DRONE_DETECTED')
   assert.ok(opportunity.whatIfElapsedMs >= target.spawnTimeMs)
   assert.ok(opportunity.whatIfElapsedMs < recorded.missionDurationMs)
+})
+
+test('Himalayan hard scenario generates a deterministic multi-threat set with varied speeds and protected-zone movement', () => {
+  const first = generateHimalayanThreats(12_345, 'Hard')
+  const second = generateHimalayanThreats(12_345, 'Hard')
+  const third = generateHimalayanThreats(98_765, 'Hard')
+
+  assert.equal(first.length, 7)
+  assert.deepEqual(first.map((threat) => threat.id), second.map((threat) => threat.id))
+  assert.deepEqual(first.map((threat) => threat.path.speed), second.map((threat) => threat.path.speed))
+  assert.ok(new Set(first.map((threat) => threat.id)).size === first.length)
+  assert.ok(first.some((threat) => threat.path.speed && threat.path.speed >= 18 && threat.path.speed <= 45))
+  assert.ok(first.some((threat) => threat.path.trajectory === 'approach'))
+  assert.ok(first.some((threat) => getHimalayanThreatAssessment(threat).direction === 'Away'))
+  assert.notDeepEqual(first.map((threat) => threat.spawnTimeMs), third.map((threat) => threat.spawnTimeMs))
+})
+
+test('Himalayan assessment raises fast approaches and de-escalates retreating contacts', () => {
+  const approaching = threat('approach', 'Hostile')
+  approaching.spawnPosition = [-50, 5, 12]
+  approaching.path.waypoints = [approaching.spawnPosition, [-15, 5, 12]]
+  approaching.path.speed = 36
+
+  const retreating = threat('retreat', 'Hostile')
+  retreating.spawnPosition = [-15, 5, 12]
+  retreating.path.waypoints = [retreating.spawnPosition, [-50, 5, 12]]
+  retreating.path.speed = 18
+
+  const approachAssessment = getHimalayanThreatAssessment(approaching)
+  const retreatAssessment = getHimalayanThreatAssessment(retreating)
+
+  assert.equal(approachAssessment.zoneId, 'forward-outpost')
+  assert.equal(approachAssessment.direction, 'Toward')
+  assert.equal(approachAssessment.priority, 'High')
+  assert.ok(Number.isFinite(approachAssessment.timeToZoneMs))
+  assert.equal(retreatAssessment.direction, 'Away')
+  assert.equal(retreatAssessment.status, 'Departing')
+  assert.equal(retreatAssessment.priority, 'Medium')
 })

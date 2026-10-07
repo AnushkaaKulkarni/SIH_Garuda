@@ -95,3 +95,426 @@
     min-height: 310px;
   }
 }
+
+.howToScreen {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  overflow-y: auto;
+  color: #e5efee;
+  background-color: #06151b;
+  background-image: linear-gradient(115deg, rgba(12, 42, 47, 0.8), rgba(5, 18, 25, 0.94)), repeating-linear-gradient(145deg, transparent 0 46px, rgba(147, 177, 168, 0.035) 46px 47px);
+}
+
+.howToInner {
+  width: min(1360px, 100%);
+  margin: 0 auto;
+  padding: 30px 28px 24px;
+}
+
+.howToHeader {
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(122, 164, 155, 0.24);
+  padding-bottom: 14px;
+}
+
+.howToHeader h1 {
+  margin: 5px 0 2px;
+  color: #f4f5ee;
+  font: 700 36px/1 'Barlow Condensed', sans-serif;
+}
+
+.howToHeader > p:last-child {
+  margin: 0;
+  color: #b7c9c5;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.instructionMap {
+  overflow: hidden;
+  border: 1px solid #31565a;
+  background: #09191f;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.25);
+}
+
+.mapPreviewHeader,
+.mapPreviewHeader > div,
+.previewWorkflow,
+.howToActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mapPreviewHeader {
+  min-height: 56px;
+  padding: 9px 13px;
+  border-bottom: 1px solid #25454b;
+}
+
+.mapPreviewHeader > div {
+  justify-content: flex-start;
+}
+
+.mapPreviewHeader > div > b,
+.previewThreatList p b,
+.previewTarget p b,
+.previewWorkflow p b,
+.sceneCallout b,
+.assetCallout b {
+  display: inline-grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  place-items: center;
+  border: 1px solid #d18a3c;
+  color: #ffc16c;
+  font: 700 11px/1 'DM Sans', sans-serif;
+}
+
+.mapPreviewHeader > div > span,
+.previewThreatList p,
+.previewTarget p,
+.previewWorkflow p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #f1f4eb;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mapPreviewHeader > div > span {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mapPreviewHeader small,
+.previewTag,
+.assetNote,
+.previewThreatList > small,
+.previewTarget > span {
+  color: #9eb4b2;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.previewTag {
+  border-left: 1px solid #55746d;
+  padding-left: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.mapPreviewGrid {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 205px;
+  gap: 1px;
+  background: #25454b;
+}
+
+.previewThreatList,
+.previewTarget {
+  min-width: 0;
+  padding: 12px 10px;
+  background: #0b1c22;
+}
+
+.previewThreatList p,
+.previewTarget p,
+.previewWorkflow p {
+  margin-bottom: 12px;
+  font-size: 9px;
+}
+
+.previewThreatList > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 9px 0;
+  color: #d5e1dc;
+  font: 700 10px/1.2 ui-monospace, monospace;
+}
+
+.previewThreatList > span i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e7ad59;
+}
+
+.previewThreatList > span small {
+  margin-left: auto;
+  color: #97aaa6;
+  font-size: 8px;
+}
+
+.previewScene {
+  position: relative;
+  min-width: 0;
+  min-height: 320px;
+  overflow: hidden;
+  background: #7d96a0;
+}
+
+.sceneCallout,
+.assetCallout {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(186, 207, 195, 0.65);
+  background: rgba(5, 16, 20, 0.82);
+  padding: 5px 7px;
+  color: #edf4eb;
+  font-size: 9px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.sceneCallout { top: 10px; left: 10px; }
+.assetCallout { right: 10px; bottom: 10px; }
+
+.sceneCallout b,
+.assetCallout b {
+  width: 20px;
+  height: 20px;
+  flex-basis: 20px;
+}
+
+.previewTarget .uavReference {
+  min-height: 114px;
+  margin: 0 0 9px;
+}
+
+.previewTarget .uavReference svg { height: 44px; }
+.previewTarget .uavReference strong { font-size: 9px; }
+.previewTarget .uavReference small { display: none; }
+
+.previewWorkflow {
+  min-height: 49px;
+  justify-content: flex-start;
+  border-top: 1px solid #25454b;
+  padding: 8px 13px;
+}
+
+.previewWorkflow p { margin: 0; }
+
+.previewWorkflow > span {
+  color: #d9e5df;
+  font: 700 9px/1.4 ui-monospace, monospace;
+}
+
+.previewWorkflow i {
+  padding: 0 5px;
+  color: #f3ae59;
+  font-style: normal;
+}
+
+.assetNote {
+  margin: 0;
+  border-top: 1px solid rgba(122, 164, 155, 0.2);
+  padding: 8px 13px;
+}
+
+.howToSteps,
+.missionGuide {
+  margin-top: 22px;
+}
+
+.instructionSectionTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #f0f4eb;
+  font: 700 14px/1.2 'Barlow Condensed', sans-serif;
+}
+
+.instructionSectionTitle span { letter-spacing: 0.04em; }
+.instructionSectionTitle small { color: #9eb4b2; font: 500 10px/1.2 'DM Sans', sans-serif; }
+
+.stepGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stepItem {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  min-height: 82px;
+  border: 1px solid rgba(84, 122, 117, 0.46);
+  background: rgba(8, 27, 32, 0.8);
+  padding: 10px;
+}
+
+.stepItem > b {
+  color: #f1a94f;
+  font: 700 17px/1 'Barlow Condensed', sans-serif;
+}
+
+.stepItem strong {
+  color: #eaf1e9;
+  font: 700 11px/1.2 'DM Sans', sans-serif;
+}
+
+.stepItem p {
+  margin: 5px 0 0;
+  color: #aebfba;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.coreRule {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 9px;
+  border-left: 3px solid #e9a64e;
+  background: rgba(82, 53, 26, 0.26);
+  padding: 10px 13px;
+}
+
+.coreRule > strong { color: #ffc16c; font-size: 10px; }
+.coreRule p { margin: 0; color: #f2eee2; font-size: 12px; }
+.coreRule > span { color: #e5bd86; font-size: 10px; font-weight: 600; }
+
+.missionGuide {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 20px;
+  border-top: 1px solid rgba(122, 164, 155, 0.24);
+  padding-top: 16px;
+}
+
+.missionGuide article > p {
+  max-width: 720px;
+  margin: 0 0 14px;
+  color: #c3d0cb;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.goodPerformanceTitle,
+.controlsGuide article > div > b {
+  color: #edb260;
+  font-size: 10px;
+}
+
+.performanceList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 14px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.performanceList li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #c9d7d0;
+  font-size: 10px;
+}
+
+.performanceList svg { color: #62c5a6; }
+
+.controlsGuide {
+  border-left: 1px solid rgba(122, 164, 155, 0.24);
+  padding-left: 18px;
+}
+
+.controlsGuide > div:not(.instructionSectionTitle) {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 10px;
+  border-top: 1px solid rgba(122, 164, 155, 0.16);
+  padding: 9px 0;
+}
+
+.controlsGuide > div > span { color: #b7c9c5; font-size: 10px; line-height: 1.45; }
+
+.howToActions {
+  justify-content: flex-end;
+  margin-top: 20px;
+  border-top: 1px solid rgba(122, 164, 155, 0.24);
+  padding-top: 14px;
+}
+
+.uavReference {
+  display: flex;
+  min-height: 90px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin: 8px 0;
+  border: 1px solid rgba(108, 150, 145, 0.42);
+  background: linear-gradient(145deg, rgba(23, 49, 53, 0.96), rgba(8, 21, 27, 0.98));
+  padding: 7px 9px;
+  text-align: center;
+}
+
+.uavReference svg { width: min(190px, 90%); height: 48px; color: #c1d4cb; fill: currentColor; }
+.fixedWing svg { color: #e3c28d; }
+.unknownUav svg { color: #8dc5c5; }
+.uavReference > div { display: flex; flex-direction: column; gap: 2px; }
+.uavReference strong { color: #e8f0e9; font-size: 10px; }
+.uavReference small { color: #91a9a5; font-size: 7px; font-weight: 700; }
+
+.workflowStep {
+  display: grid !important;
+  grid-template-columns: 27px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 8px;
+  min-width: 118px;
+  padding: 8px 10px !important;
+  text-align: left;
+}
+
+.workflowStep > b {
+  grid-row: span 2;
+  color: #f0ad55;
+  font: 700 15px/1 'Barlow Condensed', sans-serif;
+}
+
+.workflowStep > span { font-size: 10px; font-weight: 700; line-height: 1.1; }
+.workflowStep > small { font-size: 8px; line-height: 1.2; }
+
+@media (max-width: 900px) {
+  .howToInner { padding: 22px 18px; }
+  .stepGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mapPreviewGrid { grid-template-columns: 120px minmax(0, 1fr); }
+  .previewTarget { display: none; }
+}
+
+@media (max-width: 600px) {
+  .howToInner { padding: 18px 12px; }
+  .howToHeader h1 { font-size: 30px; }
+  .mapPreviewHeader { align-items: flex-start; }
+  .previewTag { max-width: 125px; font-size: 8px; }
+  .mapPreviewGrid { grid-template-columns: minmax(0, 1fr); }
+  .previewThreatList { display: none; }
+  .previewScene { min-height: 250px; }
+  .previewWorkflow { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .previewWorkflow > span { font-size: 8px; }
+  .stepGrid { grid-template-columns: minmax(0, 1fr); }
+  .stepItem { min-height: 0; }
+  .coreRule { grid-template-columns: auto 1fr; gap: 6px 10px; }
+  .coreRule > span { grid-column: 2; }
+  .missionGuide { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .controlsGuide { border-top: 1px solid rgba(122, 164, 155, 0.24); border-left: 0; padding: 14px 0 0; }
+  .performanceList { grid-template-columns: minmax(0, 1fr); }
+  .howToActions { justify-content: stretch; flex-direction: column-reverse; }
+  .howToActions > * { width: 100%; }
+}

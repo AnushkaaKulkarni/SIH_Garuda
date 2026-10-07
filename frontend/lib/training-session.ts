@@ -23,7 +23,7 @@ export type SessionThreat = {
   spawnPosition: [number, number, number]
   spawnTimeMs: number
   path: {
-    trajectory?: 'approach' | 'crossing' | 'altitude' | 'retreat' | 'arc'
+    trajectory?: 'approach' | 'crossing' | 'altitude' | 'retreat' | 'arc' | 'parallel'
     speed?: number
     waypoints?: [number, number, number][]
     center: [number, number, number]
@@ -135,6 +135,181 @@ export function getPriority(classification: string): ThreatPriority {
   return 'Low'
 }
 
+export type ProtectedZone = {
+  id: string
+  name: string
+  position: [number, number, number]
+  radius: number
+  priority: ThreatPriority
+}
+
+export const HIMALAYAN_PROTECTED_ZONES: ProtectedZone[] = [
+  { id: 'forward-outpost', name: 'FORWARD OUTPOST', position: [-20, 1.2, 12], radius: 10, priority: 'High' },
+  { id: 'communication-station', name: 'COMMUNICATION STATION', position: [3, 1.2, -12], radius: 8, priority: 'High' },
+  { id: 'radar-station', name: 'RADAR / SENSOR STATION', position: [18, 1.6, 10], radius: 9, priority: 'High' },
+  { id: 'supply-area', name: 'SUPPLY / LOGISTICS AREA', position: [-2, 0.8, -28], radius: 12, priority: 'Medium' },
+  { id: 'ridge-road', name: 'PROTECTED ROAD / ROUTE', position: [0, 1.4, 18], radius: 15, priority: 'Medium' },
+]
+
+export function getHimalayanThreatAssessment(threat: SessionThreat): {
+  zoneId: string
+  zoneName: string
+  status: 'Far' | 'Approaching' | 'Entering' | 'Crossing' | 'Departing'
+  direction: 'Toward' | 'Away' | 'Crossing'
+  priority: 'Low' | 'Medium' | 'High' | 'Unknown'
+  timeToZoneMs: number
+} {
+  const points = threat.path.waypoints?.length ? threat.path.waypoints : [threat.spawnPosition]
+  const route = points.length > 1 ? points : [points[0], points[0]]
+  const routeLength = route.slice(1).reduce((length, point, index) => (
+    length + Math.hypot(point[0] - route[index][0], point[2] - route[index][2])
+  ), 0)
+  const closestPointOnSegment = (zone: ProtectedZone, start: [number, number, number], end: [number, number, number]) => {
+    const dx = end[0] - start[0]
+    const dz = end[2] - start[2]
+    const lengthSquared = dx * dx + dz * dz
+    const progress = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((zone.position[0] - start[0]) * dx + (zone.position[2] - start[2]) * dz) / lengthSquared))
+    const x = start[0] + dx * progress
+    const z = start[2] + dz * progress
+    return {
+      distance: Math.hypot(x - zone.position[0], z - zone.position[2]),
+      progress,
+      segmentLength: Math.sqrt(lengthSquared),
+    }
+  }
+
+  const relevantZone = HIMALAYAN_PROTECTED_ZONES.map((zone) => {
+    let closestDistance = Number.POSITIVE_INFINITY
+    let distanceAlongRoute = 0
+    let travelled = 0
+    for (let index = 0; index < route.length - 1; index += 1) {
+      const closest = closestPointOnSegment(zone, route[index], route[index + 1])
+      if (closest.distance < closestDistance) {
+        closestDistance = closest.distance
+        distanceAlongRoute = travelled + closest.segmentLength * closest.progress
+      }
+      travelled += closest.segmentLength
+    }
+    return { zone, closestDistance, distanceAlongRoute }
+  }).sort((first, second) => first.closestDistance - second.closestDistance)[0]
+  const { zone, closestDistance, distanceAlongRoute } = relevantZone
+  const startDistance = Math.hypot(threat.spawnPosition[0] - zone.position[0], threat.spawnPosition[2] - zone.position[2])
+  const end = route[route.length - 1]
+  const endDistance = Math.hypot(end[0] - zone.position[0], end[2] - zone.position[2])
+  const direction: 'Toward' | 'Away' | 'Crossing' = endDistance < startDistance - 0.75
+    ? 'Toward'
+    : endDistance > startDistance + 0.75 ? 'Away' : 'Crossing'
+  const speed = Math.max(threat.path.speed ?? 0, 0)
+  const routeSpeed = speed / 12
+  const distanceToZone = Math.max(0, distanceAlongRoute - zone.radius)
+  const timeToZoneMs = direction === 'Toward' && routeSpeed > 0
+    ? Math.round((distanceToZone / routeSpeed) * 1000)
+    : Number.POSITIVE_INFINITY
+
+  let status: 'Far' | 'Approaching' | 'Entering' | 'Crossing' | 'Departing' = 'Far'
+  if (direction === 'Away' && startDistance < zone.radius * 2.4) status = 'Departing'
+  else if (closestDistance <= zone.radius) status = direction === 'Crossing' ? 'Crossing' : 'Entering'
+  else if (direction === 'Toward' && closestDistance < zone.radius * 2.6) status = 'Approaching'
+  else if (direction === 'Crossing' && closestDistance < zone.radius * 2.2) status = 'Crossing'
+
+  const basePriority: ThreatPriority = threat.expectedClassification === 'Hostile' ? 'High'
+    : threat.expectedClassification === 'Unknown' ? 'Medium'
+      : 'Low'
+
+  let priority: ThreatPriority = basePriority
+  if (direction === 'Away') priority = priority === 'High' ? 'Medium' : priority === 'Medium' ? 'Low' : 'Low'
+  else if (direction === 'Toward' && threat.expectedClassification !== 'Friendly' && (timeToZoneMs <= 18_000 || speed >= 32)) priority = 'High'
+  else if (closestDistance > zone.radius * 2.6 && direction !== 'Toward' && priority === 'High') priority = 'Medium'
+
+  return {
+    zoneId: zone.id,
+    zoneName: zone.name,
+    status,
+    direction,
+    priority,
+    timeToZoneMs,
+  }
+}
+
+export function generateHimalayanThreats(seed: number, difficulty: TrainingDifficulty): SessionThreat[] {
+  const random = createSeededRandom(seed)
+  const countMap: Record<TrainingDifficulty, number> = {
+    Easy: 5,
+    Medium: 6,
+    Hard: 7,
+    Expert: 8,
+  }
+  const routeLibrary = [
+    { trajectory: 'approach', from: [-42, 0, 38], to: [-18, 3, 12], hostile: true, type: 'Quadcopter UAV', speed: [18, 28] },
+    { trajectory: 'crossing', from: [42, 2, -20], to: [18, 3, 8], hostile: true, type: 'Fixed-wing UAV', speed: [24, 36] },
+    { trajectory: 'altitude', from: [16, 5, -42], to: [-4, 7, -10], hostile: false, type: 'Loitering UAV', speed: [20, 30] },
+    { trajectory: 'retreat', from: [34, 3, 10], to: [52, 2, 34], hostile: false, type: 'Quadcopter UAV', speed: [18, 26] },
+    { trajectory: 'arc', from: [52, 2, 12], to: [8, 5, -6], hostile: true, type: 'Unknown UAV', speed: [22, 34] },
+    { trajectory: 'parallel', from: [-52, 2, 8], to: [6, 3, 12], hostile: true, type: 'Fixed-wing UAV', speed: [26, 38] },
+    { trajectory: 'approach', from: [18, 2, 44], to: [10, 2, 20], hostile: false, type: 'Unknown UAV', speed: [18, 25] },
+    { trajectory: 'crossing', from: [-12, 4, 48], to: [16, 4, 8], hostile: true, type: 'Quadcopter UAV', speed: [20, 32] },
+  ] as const
+  const threatCount = countMap[difficulty]
+  const threats = Array.from({ length: threatCount }, (_, index): SessionThreat => {
+    const route = routeLibrary[index % routeLibrary.length]
+    const jitterX = (random() - 0.5) * 6
+    const jitterY = 1 + random() * 2.3
+    const jitterZ = (random() - 0.5) * 6
+    const spawnPosition: [number, number, number] = [
+      route.from[0] + jitterX,
+      route.from[1] + jitterY,
+      route.from[2] + jitterZ,
+    ]
+    const targetPosition: [number, number, number] = [
+      route.to[0] + (random() - 0.5) * 4,
+      route.to[1] + (random() - 0.5) * 1.5,
+      route.to[2] + (random() - 0.5) * 4,
+    ]
+    const speed = route.speed[0] + random() * (route.speed[1] - route.speed[0])
+    const classificationRoll = random()
+    const expectedClassification = route.hostile
+      ? classificationRoll < 0.74 ? 'Hostile' : classificationRoll < 0.9 ? 'Unknown' : 'Friendly'
+      : classificationRoll < 0.68 ? 'Friendly' : classificationRoll < 0.9 ? 'Unknown' : 'Hostile'
+    const signalClassification = expectedClassification === 'Friendly' && random() < 0.2 ? 'Unknown' :
+      expectedClassification === 'Hostile' && random() < 0.28 ? 'Unknown' :
+      expectedClassification === 'Unknown' && random() < 0.15 ? 'Friendly' : expectedClassification
+    const signalConfidence = Math.max(48, Math.min(96, Math.round(74 + random() * 20)))
+    return {
+      id: `T-${String(index + 1).padStart(2, '0')}`,
+      type: route.type,
+      expectedClassification,
+      signalClassification,
+      signalConfidence,
+      priority: getPriority(expectedClassification),
+      spawnPosition,
+      spawnTimeMs: index * (difficulty === 'Hard' ? 2_700 : difficulty === 'Expert' ? 1_900 : 3_500) + Math.round(random() * 1_200),
+      path: {
+        trajectory: route.trajectory,
+        speed,
+        waypoints: [spawnPosition, [
+          (spawnPosition[0] + targetPosition[0]) / 2 + (random() - 0.5) * 8,
+          Math.max(1.8, (spawnPosition[1] + targetPosition[1]) / 2 + random() * 2.4),
+          (spawnPosition[2] + targetPosition[2]) / 2 + (random() - 0.5) * 8,
+        ] as [number, number, number], targetPosition],
+        center: spawnPosition,
+        amplitude: [3.5 + random() * 2.5, 2.4 + random() * 2.2],
+        frequency: [0.24 + random() * 0.18, 0.18 + random() * 0.2],
+        phase: random() * Math.PI,
+        verticalAmplitude: 0.8 + random() * 1.4,
+        verticalFrequency: 0.9 + random() * 1.1,
+        rotationAmplitude: 0.12 + random() * 0.18,
+      },
+    }
+  })
+  return threats.map((threat) => {
+    const assessmentPriority = getHimalayanThreatAssessment(threat).priority
+    return {
+      ...threat,
+      priority: assessmentPriority === 'Unknown' ? getPriority(threat.expectedClassification) : assessmentPriority,
+    }
+  })
+}
+
 export function createSessionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -219,7 +394,7 @@ export function calculateSessionScore(
         20,
         incorrectClassificationCount * 2 +
           incorrectPriorityCount * 2 +
-          (responseEvent && !responseIsCorrect(responseEvent, threats) ? 4 : 0),
+          (latestResponseEvent && !responseIsCorrect(latestResponseEvent, threats) ? 4 : 0),
       )
     : 0
   const awarded = Math.max(
