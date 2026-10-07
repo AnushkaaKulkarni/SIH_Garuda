@@ -7,6 +7,9 @@ import { ArrowRight, Check, Maximize2, TimerReset } from 'lucide-react'
 import { PageHeader, Panel, PortalShell } from '@/components/common/portal-shell'
 import { playSimulationTone } from '@/lib/simulation-audio'
 import { scenarios } from '@/lib/types'
+import { parseVRCommand, type ParsedVRCommand } from '@/lib/vr-commands'
+import { TrainingVRControls } from './training-vr-controls'
+import type { XRStore } from '@react-three/xr'
 import {
   calculateSessionScore,
   createScenarioSeed,
@@ -59,14 +62,15 @@ function UavReference({ type }: { type: string }) {
   )
 }
 
-export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
+export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: string; mode?: 'desktop' | 'vr' }) {
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0]
   const isHimalayan = scenario.id === 'himalayan-shield'
+  const vrMode = mode === 'vr' && isHimalayan
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>(scenario.difficulty)
   const [run, setRun] = useState({ id: 'starting', seed: 0 })
   const threats = useMemo<SessionThreat[]>(() => {
     if (scenario.id === 'himalayan-shield') {
-      return generateHimalayanThreats(run.seed || createScenarioSeed(), difficulty)
+      return generateHimalayanThreats(run.seed || 1, difficulty)
     }
 
     const countScale: Record<TrainingDifficulty, number> = {
@@ -171,8 +175,8 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
       }
     })
   }, [difficulty, run.id, run.seed, scenario.id, scenario.threatCount, scenario.type])
-  const [missionStarted, setMissionStarted] = useState(!isHimalayan)
-  const [showHowToPlay, setShowHowToPlay] = useState(isHimalayan)
+  const [missionStarted, setMissionStarted] = useState(!isHimalayan || vrMode)
+  const [showHowToPlay, setShowHowToPlay] = useState(isHimalayan && !vrMode)
   const [seconds, setSeconds] = useState(180)
   const [selectedId, setSelectedId] = useState(threats[1]?.id ?? threats[0].id)
   const [step, setStep] = useState(1)
@@ -183,6 +187,10 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
   const [storageError, setStorageError] = useState('')
   const [detectionFeedback, setDetectionFeedback] = useState('Select a drone in the terrain to record a detection.')
   const [events, setEvents] = useState<SessionEvent[]>([])
+  const [webXrSupported, setWebXrSupported] = useState<boolean | null>(null)
+  const [xrStore, setXRStore] = useState<XRStore | null>(null)
+  const [immersiveActive, setImmersiveActive] = useState(false)
+  const [xrError, setXrError] = useState('')
   const startedAt = useRef(Date.now())
   const currentScenarioId = useRef(scenario.id)
   const eventLog = useRef<SessionEvent[]>([])
@@ -205,10 +213,10 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
       currentScenarioId.current = scenario.id
       setRun({ id: createSessionId(), seed: createScenarioSeed() })
       setDifficulty(scenario.difficulty)
-      setMissionStarted(scenario.id !== 'himalayan-shield')
-      setShowHowToPlay(scenario.id === 'himalayan-shield')
+      setMissionStarted(scenario.id !== 'himalayan-shield' || mode === 'vr')
+      setShowHowToPlay(scenario.id === 'himalayan-shield' && mode !== 'vr')
     }
-  }, [scenario.id, scenario.difficulty])
+  }, [mode, scenario.id, scenario.difficulty])
 
   useEffect(() => {
     if (!missionStarted || run.id === 'starting') return
@@ -284,6 +292,49 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     if (soundOn) playSimulationTone('ambient', 0.04)
   }, [scenario.id, soundOn])
 
+  useEffect(() => {
+    if (!vrMode) return
+    let mounted = true
+    let store: XRStore | null = null
+    let unsubscribeSessionEnd = () => {}
+    setWebXrSupported(null)
+    setXrError('')
+
+    const xr = (navigator as Navigator & {
+      xr?: { isSessionSupported: (mode: 'immersive-vr') => Promise<boolean> }
+    }).xr
+    if (!xr) {
+      setWebXrSupported(false)
+      return () => { mounted = false }
+    }
+
+    void xr.isSessionSupported('immersive-vr').then(async (supported) => {
+      if (!mounted) return
+      setWebXrSupported(supported)
+      if (!supported) return
+      const { createXRStore } = await import('@react-three/xr')
+      if (!mounted) return
+      store = createXRStore({ emulate: false, offerSession: false, enterGrantedSession: false })
+      unsubscribeSessionEnd = store.onSessionEnd(() => setImmersiveActive(false))
+      setXRStore(store)
+    }).catch((error: unknown) => {
+      console.warn('WebXR capability detection failed.', error)
+      if (!mounted) return
+      setWebXrSupported(false)
+      setXrError('Immersive VR could not be initialized. VR Preview Mode remains available.')
+    })
+
+    return () => {
+      mounted = false
+      unsubscribeSessionEnd()
+      setImmersiveActive(false)
+      if (!store) return
+      const session = store.getState().session
+      if (session) void session.end().catch(() => undefined).finally(() => store?.destroy())
+      else store.destroy()
+    }
+  }, [vrMode])
+
   const appendEvent = (
     eventType: SimulationEventType,
     threatId?: string,
@@ -351,6 +402,42 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     setStep(getThreatStep(threatId))
   }
 
+  const classifyThreat = (threatId: string, classification: 'Friendly' | 'Unknown' | 'Hostile') => {
+    const threat = threats.find((item) => item.id === threatId)
+    if (!threat || !eventLog.current.some((event) => event.eventType === 'DRONE_DETECTED' && event.threatId === threatId)) return false
+    const result = classification === threat.expectedClassification ? 'correct' : 'incorrect'
+    appendEvent('DRONE_CLASSIFIED', threatId, { actualClassification: classification, result })
+    if (result === 'incorrect' && soundOn) playSimulationTone('alert')
+    setStep(3)
+    return true
+  }
+
+  const prioritizeThreat = (threatId: string, priority: 'High' | 'Medium' | 'Low') => {
+    const threat = threats.find((item) => item.id === threatId)
+    const classification = [...eventLog.current].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED' && event.threatId === threatId)?.actualClassification
+    if (!threat || typeof classification !== 'string') return false
+    const assessmentThreat = isHimalayan ? { ...threat, expectedClassification: classification } : threat
+    const expectedPriority = isHimalayan ? getHimalayanThreatAssessment(assessmentThreat).priority : threat.priority
+    const result = priority === expectedPriority ? 'correct' : 'incorrect'
+    appendEvent('THREAT_PRIORITIZED', threatId, { actualPriority: priority, result })
+    if (result === 'incorrect' && soundOn) playSimulationTone('alert')
+    setStep(4)
+    return true
+  }
+
+  const responseActionFor = (classification: string) => classification === 'Hostile'
+    ? 'Escalate alert'
+    : classification === 'Unknown' ? 'Track priority threat' : 'Continue monitoring'
+
+  const respondToThreat = (threatId: string, action: 'Continue monitoring' | 'Track priority threat' | 'Escalate alert') => {
+    const threat = threats.find((item) => item.id === threatId)
+    const classification = [...eventLog.current].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED' && event.threatId === threatId)?.actualClassification
+    if (!threat || typeof classification !== 'string' || !eventLog.current.some((event) => event.eventType === 'THREAT_PRIORITIZED' && event.threatId === threatId)) return false
+    const result = action === responseActionFor(threat.expectedClassification) ? 'correct' : 'incorrect'
+    appendEvent('RESPONSE_SELECTED', threatId, { action, result })
+    return true
+  }
+
   const finishMission = () => {
     if (!missionStarted || completionGuard.current || submitted) return
     completionGuard.current = true
@@ -383,6 +470,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     const scoreBreakdown = calculateSessionScore(threats, sessionEvents, difficulty, 'event-performance-v3')
     const session: TrainingSession = {
       version: 4,
+      mode: vrMode ? 'vr' : 'desktop',
       id: run.id,
       seed: run.seed,
       difficulty,
@@ -425,6 +513,93 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
     } catch (error) {
       console.error('Unable to toggle immersive simulation mode.', error)
       setFullscreenError('Browser fullscreen could not be enabled. Check browser permissions and try again.')
+    }
+  }
+
+  const handleVRVoiceCommand = (transcript: string) => {
+    const parsed = parseVRCommand(transcript, threats.map((threat) => threat.id))
+    if (parsed.status === 'target-not-found') return `${parsed.targetReference} is not an active target.`
+    if (parsed.status === 'unrecognized') return 'Voice command not recognized.'
+
+    const command = parsed.command
+    if (command.intent === 'MOVE_FORWARD' || command.intent === 'MOVE_BACKWARD' || command.intent === 'MOVE_LEFT' || command.intent === 'MOVE_RIGHT') {
+      const keyByIntent = { MOVE_FORWARD: 'w', MOVE_BACKWARD: 's', MOVE_LEFT: 'a', MOVE_RIGHT: 'd' } as const
+      const key = keyByIntent[command.intent]
+      window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+      window.setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key })), 450)
+      return `Camera moved ${command.intent.replace('MOVE_', '').toLowerCase()}.`
+    }
+
+    if (!('threatId' in command)) return 'Voice command not recognized.'
+    const threatId = command.threatId
+    const detected = () => eventLog.current.some((event) => event.eventType === 'DRONE_DETECTED' && event.threatId === threatId)
+    const classified = () => eventLog.current.some((event) => event.eventType === 'DRONE_CLASSIFIED' && event.threatId === threatId)
+    const prioritized = () => eventLog.current.some((event) => event.eventType === 'THREAT_PRIORITIZED' && event.threatId === threatId)
+
+    if (command.intent === 'SELECT_TARGET' || command.intent === 'DETECT_TARGET') {
+      selectThreat(threatId)
+      return detected() ? `${threatId} selected and detection recorded.` : `${threatId} selected; waiting for the contact to spawn.`
+    }
+
+    if (command.intent === 'CLASSIFY_TARGET') {
+      if (!command.classification.trim()) {
+        selectThreat(threatId)
+        if (!detected()) return `Detect ${threatId} before classifying it.`
+        setStep(2)
+        return `${threatId} selected. Say classify ${threatId.replace('-', '')} as Friendly, Unknown, or Hostile.`
+      }
+      const classifications = { friendly: 'Friendly', unknown: 'Unknown', hostile: 'Hostile' } as const
+      const classification = classifications[command.classification.toLowerCase() as keyof typeof classifications]
+      if (!classification) return 'Unknown classification. Use Friendly, Unknown, or Hostile.'
+      selectThreat(threatId)
+      if (!detected()) return `Detect ${threatId} before classifying it.`
+      return classifyThreat(threatId, classification) ? `${threatId} classified as ${classification}.` : `Could not classify ${threatId}.`
+    }
+
+    if (command.intent === 'PRIORITIZE_TARGET') {
+      selectThreat(threatId)
+      if (!detected()) return `${threatId} has not spawned yet.`
+      if (!classified()) return `Classify ${threatId} before prioritizing it.`
+      const classification = [...eventLog.current].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED' && event.threatId === threatId)?.actualClassification
+      const targetThreat = threats.find((threat) => threat.id === threatId)
+      if (!targetThreat) return `${threatId} is not an active target.`
+      const assessmentThreat = isHimalayan ? { ...targetThreat, expectedClassification: classification ?? 'Unknown' } : targetThreat
+      const assessmentPriority = getHimalayanThreatAssessment(assessmentThreat).priority
+      const priority = assessmentPriority === 'Unknown' ? getPriority(classification ?? 'Unknown') : assessmentPriority
+      return prioritizeThreat(threatId, priority) ? `${threatId} prioritized ${priority}.` : `Could not prioritize ${threatId}.`
+    }
+
+    if (command.intent !== 'RESPOND_TO_TARGET') return 'Voice command not recognized.'
+    selectThreat(threatId)
+    if (!detected()) return `${threatId} has not spawned yet.`
+    if (!classified() || !prioritized()) return `Classify and prioritize ${threatId} before responding.`
+    const classification = [...eventLog.current].reverse().find((event) => event.eventType === 'DRONE_CLASSIFIED' && event.threatId === threatId)?.actualClassification ?? 'Unknown'
+    const action = command.response === 'engage' ? 'Escalate alert' : responseActionFor(classification)
+    return respondToThreat(threatId, action) ? `${threatId}: ${action} recorded as a simulated training response.` : `Could not respond to ${threatId}.`
+  }
+
+  const enterImmersiveVR = async () => {
+    if (!xrStore || webXrSupported !== true) return
+    setXrError('')
+    try {
+      const session = await xrStore.enterVR()
+      if (!session) throw new Error('WebXR did not return an immersive session.')
+      setImmersiveActive(true)
+    } catch (error) {
+      console.warn('Unable to start an immersive WebXR session.', error)
+      setImmersiveActive(false)
+      setXrError('Immersive VR could not be started on this device. VR Preview Mode remains available.')
+    }
+  }
+
+  const exitImmersiveVR = async () => {
+    setXrError('')
+    try {
+      await xrStore?.getState().session?.end()
+      setImmersiveActive(false)
+    } catch (error) {
+      console.warn('Unable to end the immersive WebXR session.', error)
+      setXrError('The headset session could not be ended from the browser controls.')
     }
   }
 
@@ -579,15 +754,29 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
   const content = (
     <main className="page-content simulation-page">
       <PageHeader
-        eyebrow={`LIVE TRAINING / ${scenario.name.toUpperCase()}`}
+        eyebrow={`LIVE ${vrMode ? 'VR-READY ' : ''}TRAINING / ${scenario.name.toUpperCase()}`}
         title="Live Training Simulation"
-        subtitle={`Training only · ${scenario.terrain} terrain · ${spawnedSet.size} active / ${threats.length} total contacts`}
+        subtitle={vrMode
+          ? `VR-ready browser mode · ${scenario.terrain} terrain`
+          : `Training only · ${scenario.terrain} terrain · ${spawnedSet.size} active / ${threats.length} total contacts`}
         action={
           <div className="simulation-top-controls">
             {missionStarted && <span className={`live-pill ${seconds < 30 ? 'critical' : ''}`}>
               <TimerReset size={14} /> {minutes}:{remainingSeconds}
             </span>}
             {isHimalayan && missionStarted && <button className="table-action" onClick={() => setShowHowToPlay(true)}>How to play</button>}
+            {vrMode && missionStarted && (
+              <TrainingVRControls
+                threatIds={threats.map((threat) => threat.id)}
+                webXrSupported={webXrSupported}
+                xrReady={webXrSupported === true && xrStore !== null}
+                immersiveActive={immersiveActive}
+                xrError={xrError}
+                onCommand={handleVRVoiceCommand}
+                onEnterVR={enterImmersiveVR}
+                onExitVR={exitImmersiveVR}
+              />
+            )}
             <label className="terrain-chip">
               Difficulty
               <select
@@ -669,6 +858,8 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
             time={scenario.time}
             visibility={scenario.visibility}
             himalayanVisuals={isHimalayan}
+            xrStore={vrMode ? xrStore ?? undefined : undefined}
+            xrActive={vrMode && immersiveActive}
             missionStartedAt={missionStarted ? startedAt.current : undefined}
             onThreatDetected={selectThreat}
           />
@@ -744,15 +935,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
                   key={choice}
                   className={selectedClassification?.actualClassification === choice ? 'active' : ''}
                   disabled={!detectedSet.has(selectedThreat.id)}
-                  onClick={() => {
-                    const result = choice === selectedThreat.expectedClassification ? 'correct' : 'incorrect'
-                    appendEvent('DRONE_CLASSIFIED', selectedThreat.id, {
-                      actualClassification: choice,
-                      result,
-                    })
-                    if (result === 'incorrect' && soundOn) playSimulationTone('alert')
-                    setStep(3)
-                  }}
+                  onClick={() => classifyThreat(selectedThreat.id, choice as 'Friendly' | 'Unknown' | 'Hostile')}
                 >
                   {choice}
                 </button>
@@ -765,14 +948,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
                 <button
                   key={priority}
                   className={selectedPriority?.actualPriority === priority ? 'active' : ''}
-                  onClick={() => {
-                    appendEvent('THREAT_PRIORITIZED', selectedThreat.id, {
-                      actualPriority: priority,
-                      result: priority === (isHimalayan ? selectedAssessment.priority : selectedThreat.priority) ? 'correct' : 'incorrect',
-                    })
-                    if (priority !== (isHimalayan ? selectedAssessment.priority : selectedThreat.priority) && soundOn) playSimulationTone('alert')
-                    setStep(4)
-                  }}
+                  onClick={() => prioritizeThreat(selectedThreat.id, priority)}
                 >
                   {priority}
                 </button>
@@ -785,18 +961,7 @@ export function LiveSimulation({ scenarioId }: { scenarioId: string }) {
                 <button
                   key={choice}
                   className={selectedResponse?.action === choice ? 'active' : ''}
-                  onClick={() => {
-                    appendEvent('RESPONSE_SELECTED', selectedThreat.id, {
-                      action: choice,
-                      result: choice === (
-                        selectedThreat.expectedClassification === 'Hostile'
-                          ? 'Escalate alert'
-                          : selectedThreat.expectedClassification === 'Unknown'
-                            ? 'Track priority threat'
-                            : 'Continue monitoring'
-                      ) ? 'correct' : 'incorrect',
-                    })
-                  }}
+                    onClick={() => respondToThreat(selectedThreat.id, choice as 'Continue monitoring' | 'Track priority threat' | 'Escalate alert')}
                 >
                   {choice}
                 </button>

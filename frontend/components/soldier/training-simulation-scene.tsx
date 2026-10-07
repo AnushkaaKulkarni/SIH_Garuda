@@ -1,9 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import type { XRStore } from '@react-three/xr'
 import * as THREE from 'three'
+
+const TrainingXRLayer = lazy(() => import('./training-xr-layer').then((module) => ({ default: module.TrainingXRLayer })))
 
 export type SimulationContact = {
   id: string
@@ -32,6 +35,8 @@ type TrainingSimulationSceneProps = {
   time: string
   visibility: string
   himalayanVisuals?: boolean
+  xrStore?: XRStore
+  xrActive?: boolean
   playbackSeconds?: number
   missionStartedAt?: number
   onThreatDetected?: (threatId: string) => void
@@ -1236,20 +1241,16 @@ export function TrainingSimulationScene({
   time,
   visibility,
   himalayanVisuals = false,
+  xrStore,
+  xrActive = false,
   playbackSeconds,
   missionStartedAt,
   onThreatDetected,
 }: TrainingSimulationSceneProps) {
   const night = time.toLowerCase() === 'night'
   const far = /fog/i.test(visibility) ? 72 : /blackout/i.test(visibility) ? 88 : /dust|snow/i.test(visibility) ? 94 : /degraded|haze|reduced|low light/i.test(visibility) ? 108 : 130
-
-  return (
-    <Canvas
-      camera={{ position: [25, 25, 37], fov: 46, near: 0.1, far: 170 }}
-      dpr={[1, 1.5]}
-      gl={{ antialias: true, powerPreference: 'low-power' }}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-    >
+  const sceneContent = (
+    <>
       <CameraRig />
       <Terrain terrain={terrain} time={time} visibility={visibility} himalayanVisuals={himalayanVisuals} />
       {himalayanVisuals && <Snowfall />}
@@ -1273,6 +1274,7 @@ export function TrainingSimulationScene({
       ))}
       <OrbitControls
         makeDefault
+        enabled={!xrActive}
         target={[0, 3, -8]}
         enableDamping
         dampingFactor={0.08}
@@ -1281,6 +1283,21 @@ export function TrainingSimulationScene({
         maxDistance={45}
         maxPolarAngle={Math.PI / 2.03}
       />
+    </>
+  )
+
+  return (
+    <Canvas
+      camera={{ position: [25, 25, 37], fov: 46, near: 0.1, far: 170 }}
+      dpr={[1, 1.5]}
+      gl={{ antialias: true, powerPreference: 'low-power' }}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+    >
+      {xrStore ? (
+        <Suspense fallback={sceneContent}>
+          <TrainingXRLayer store={xrStore}>{sceneContent}</TrainingXRLayer>
+        </Suspense>
+      ) : sceneContent}
     </Canvas>
   )
 }

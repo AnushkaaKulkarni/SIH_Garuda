@@ -1,5 +1,6 @@
 export type ThreatPriority = 'High' | 'Medium' | 'Low'
 export type TrainingDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert'
+export type TrainingMode = 'desktop' | 'vr'
 export type SessionScoreRule = 'event-performance-v1' | 'event-performance-v2' | 'event-performance-v3' | 'legacy-hostile-response'
 export type SimulationEventType =
   | 'MISSION_STARTED'
@@ -65,6 +66,7 @@ export type SessionScoreBreakdown = {
 
 export type TrainingSession = {
   version: 3 | 4
+  mode?: TrainingMode
   id: string
   seed: number
   difficulty: TrainingDifficulty

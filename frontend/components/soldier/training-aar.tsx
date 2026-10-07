@@ -397,6 +397,7 @@ export function AARExperience({ session: sessionId }: { session: string }) {
                   <span>Mission time<b>{hasRecordedSession ? formatDuration(session.missionDurationMs) : 'N/A'}</b></span>
                   <span>Completed<b>{session.completedAt ? new Date(session.completedAt).toLocaleString() : 'N/A'}</b></span>
                   <span>Difficulty<b>{session.difficulty}</b></span>
+                  {session.mode === 'vr' && <span>Input mode<b>VR-ready</b></span>}
                 </div>
               </Panel>
             </div>
