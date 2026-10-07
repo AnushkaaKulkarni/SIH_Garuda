@@ -24,6 +24,14 @@ test('parses movement and event-backed target actions', () => {
     status: 'command',
     command: { intent: 'MOVE_FORWARD' },
   })
+  assert.deepEqual(parseVRCommand('up', threatIds), {
+    status: 'command',
+    command: { intent: 'MOVE_UP' },
+  })
+  assert.deepEqual(parseVRCommand('move down', threatIds), {
+    status: 'command',
+    command: { intent: 'MOVE_DOWN' },
+  })
   assert.deepEqual(parseVRCommand('Classify T-03 as hostile', threatIds), {
     status: 'command',
     command: { intent: 'CLASSIFY_TARGET', threatId: 'T-03', classification: 'hostile' },

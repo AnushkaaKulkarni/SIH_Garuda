@@ -14,6 +14,7 @@ export type SimulationContact = {
   detected: boolean
   selected: boolean
   position: [number, number, number]
+  classification?: 'Friendly' | 'Unknown' | 'Hostile'
   eventCue?: string
   cueHypothetical?: boolean
   motion?: {
@@ -48,12 +49,14 @@ function SceneLabel({
   color,
   background = 'rgba(5, 12, 16, 0.88)',
   width = 5.2,
+  opacity = 1,
 }: {
   text: string
   position: [number, number, number]
   color: string
   background?: string
   width?: number
+  opacity?: number
 }) {
   const texture = useMemo(() => {
     const canvas = document.createElement('canvas')
@@ -83,7 +86,7 @@ function SceneLabel({
 
   return (
     <sprite position={position} scale={[width, width * 0.15, 1]}>
-      <spriteMaterial map={texture} transparent depthWrite={false} />
+      <spriteMaterial map={texture} transparent depthWrite={false} opacity={opacity} />
     </sprite>
   )
 }
@@ -319,6 +322,24 @@ function Drone({
           <meshBasicMaterial color={selected ? '#f4bb61' : '#58d7b3'} side={THREE.DoubleSide} />
         </mesh>
       )}
+      {contact.classification && (
+        <mesh position={[0, 0.14, -0.015]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.085, 0.014, 5, 16]} />
+          <meshBasicMaterial
+            color={contact.classification === 'Friendly' ? '#71c8a0' : contact.classification === 'Hostile' ? '#d47d72' : '#c5ae72'}
+            transparent
+            opacity={0.72}
+          />
+        </mesh>
+      )}
+      <SceneLabel
+        position={[0, 1.48, 0]}
+        text={contact.id.match(/T-\d+$/)?.[0] ?? contact.id}
+        color={selected ? '#f4bb61' : '#b5ccc7'}
+        background={selected ? 'rgba(84, 47, 12, 0.9)' : 'rgba(5, 12, 16, 0.76)'}
+        width={4.9}
+        opacity={selected ? 1 : 0.86}
+      />
       {contact.eventCue && (
         <>
           <mesh position={[0, -0.23, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -737,6 +758,30 @@ function DunePatch({
 function CameraRig() {
   const { camera } = useThree()
   const keys = useRef({ forward: false, backward: false, left: false, right: false })
+  const voiceMovement = useRef({ forward: false, backward: false, left: false, right: false, up: false, down: false })
+
+  const applyVoiceMovement = (intent: 'MOVE_FORWARD' | 'MOVE_BACKWARD' | 'MOVE_LEFT' | 'MOVE_RIGHT' | 'MOVE_UP' | 'MOVE_DOWN' | 'MOVE_STOP') => {
+    const states = {
+      MOVE_FORWARD: 'forward',
+      MOVE_BACKWARD: 'backward',
+      MOVE_LEFT: 'left',
+      MOVE_RIGHT: 'right',
+      MOVE_UP: 'up',
+      MOVE_DOWN: 'down',
+      MOVE_STOP: undefined,
+    } as const
+
+    const axis = states[intent]
+    voiceMovement.current.forward = false
+    voiceMovement.current.backward = false
+    voiceMovement.current.left = false
+    voiceMovement.current.right = false
+    voiceMovement.current.up = false
+    voiceMovement.current.down = false
+    if (axis) {
+      voiceMovement.current[axis] = true
+    }
+  }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -751,11 +796,18 @@ function CameraRig() {
       if (event.key.toLowerCase() === 'a') keys.current.left = false
       if (event.key.toLowerCase() === 'd') keys.current.right = false
     }
+    const onVoiceMove = (event: Event) => {
+      const customEvent = event as CustomEvent<{ intent: 'MOVE_FORWARD' | 'MOVE_BACKWARD' | 'MOVE_LEFT' | 'MOVE_RIGHT' | 'MOVE_UP' | 'MOVE_DOWN' | 'MOVE_STOP' }>
+      if (customEvent.detail) applyVoiceMovement(customEvent.detail.intent)
+    }
+
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('vr-move-intent', onVoiceMove)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('vr-move-intent', onVoiceMove)
     }
   }, [])
 
@@ -767,15 +819,20 @@ function CameraRig() {
     forward.normalize()
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
 
-    if (keys.current.forward) moveVector.add(forward)
-    if (keys.current.backward) moveVector.sub(forward)
-    if (keys.current.left) moveVector.sub(right)
-    if (keys.current.right) moveVector.add(right)
+    if (keys.current.forward || voiceMovement.current.forward) moveVector.add(forward)
+    if (keys.current.backward || voiceMovement.current.backward) moveVector.sub(forward)
+    if (keys.current.left || voiceMovement.current.left) moveVector.sub(right)
+    if (keys.current.right || voiceMovement.current.right) moveVector.add(right)
+    const verticalMovement = Number(voiceMovement.current.up) - Number(voiceMovement.current.down)
 
     if (moveVector.lengthSq() > 0) {
       moveVector.normalize().multiplyScalar(14 * delta)
       camera.position.add(moveVector)
       camera.position.y = THREE.MathUtils.clamp(camera.position.y, 4, 20)
+    }
+    if (verticalMovement !== 0) {
+      camera.position.y += verticalMovement * 14 * delta
+      camera.position.y = THREE.MathUtils.clamp(camera.position.y, 4, 32)
     }
   })
 
@@ -1263,14 +1320,15 @@ export function TrainingSimulationScene({
         ]}
       />
       {contacts.map((contact) => (
-        <Drone
-          key={contact.id}
-          contact={contact}
-          selected={contact.selected}
-          playbackSeconds={playbackSeconds}
-          missionStartedAt={missionStartedAt}
-          onThreatDetected={onThreatDetected}
-        />
+        <group key={contact.id}>
+          <Drone
+            contact={contact}
+            selected={contact.selected}
+            playbackSeconds={playbackSeconds}
+            missionStartedAt={missionStartedAt}
+            onThreatDetected={onThreatDetected}
+          />
+        </group>
       ))}
       <OrbitControls
         makeDefault

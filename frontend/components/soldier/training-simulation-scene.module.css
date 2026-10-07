@@ -1,4 +1,5 @@
 .scenePanel {
+  position: relative;
   padding: 0;
   background-image: none;
 }
@@ -17,6 +18,7 @@
 
 .sceneHud {
   position: absolute;
+  z-index: 3;
   inset: 13px 14px auto;
   display: flex;
   justify-content: space-between;
@@ -39,6 +41,7 @@
 
 .sceneDetection {
   position: absolute;
+  z-index: 3;
   bottom: 13px;
   left: 14px;
   max-width: calc(100% - 28px);
@@ -49,11 +52,82 @@
 
 .sceneHint {
   position: absolute;
+  z-index: 3;
   right: 14px;
   bottom: 13px;
   color: #c2d2c7;
   pointer-events: none;
   font: 9px/1.4 ui-monospace, monospace;
+}
+
+.binocularOverlay {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(2, 8, 12, 0.28) 100%);
+}
+
+.binocularLens {
+  position: absolute;
+  top: 14%;
+  width: 43%;
+  height: 72%;
+  border: 2px solid rgba(181, 218, 203, 0.55);
+  border-radius: 50%;
+  box-shadow: 0 0 0 999px rgba(2, 8, 12, 0.48), inset 0 0 22px rgba(146, 205, 183, 0.1);
+}
+
+.binocularLens:first-child {
+  left: 7%;
+}
+
+.binocularLens:nth-child(2) {
+  right: 7%;
+}
+
+.binocularReticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(213, 235, 224, 0.75);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.binocularReticle::before,
+.binocularReticle::after {
+  position: absolute;
+  content: '';
+  background: rgba(213, 235, 224, 0.75);
+}
+
+.binocularReticle::before {
+  top: 8px;
+  left: -7px;
+  width: 30px;
+  height: 1px;
+}
+
+.binocularReticle::after {
+  top: -7px;
+  left: 8px;
+  width: 1px;
+  height: 30px;
+}
+
+.binocularOverlay strong {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  color: rgba(218, 235, 226, 0.84);
+  font: 600 9px/1 ui-monospace, monospace;
+  letter-spacing: 0.12em;
+  text-shadow: 0 1px 5px #07141c;
+  transform: translateX(-50%);
 }
 
 .immersive :global(.portal-topbar),

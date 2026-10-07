@@ -177,6 +177,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
   }, [difficulty, run.id, run.seed, scenario.id, scenario.threatCount, scenario.type])
   const [missionStarted, setMissionStarted] = useState(!isHimalayan || vrMode)
   const [showHowToPlay, setShowHowToPlay] = useState(isHimalayan && !vrMode)
+  const [binocularMode, setBinocularMode] = useState(false)
   const [seconds, setSeconds] = useState(180)
   const [selectedId, setSelectedId] = useState(threats[1]?.id ?? threats[0].id)
   const [step, setStep] = useState(1)
@@ -522,12 +523,28 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
     if (parsed.status === 'unrecognized') return 'Voice command not recognized.'
 
     const command = parsed.command
-    if (command.intent === 'MOVE_FORWARD' || command.intent === 'MOVE_BACKWARD' || command.intent === 'MOVE_LEFT' || command.intent === 'MOVE_RIGHT') {
-      const keyByIntent = { MOVE_FORWARD: 'w', MOVE_BACKWARD: 's', MOVE_LEFT: 'a', MOVE_RIGHT: 'd' } as const
-      const key = keyByIntent[command.intent]
-      window.dispatchEvent(new KeyboardEvent('keydown', { key }))
-      window.setTimeout(() => window.dispatchEvent(new KeyboardEvent('keyup', { key })), 450)
-      return `Camera moved ${command.intent.replace('MOVE_', '').toLowerCase()}.`
+    if (
+      command.intent === 'MOVE_FORWARD' ||
+      command.intent === 'MOVE_BACKWARD' ||
+      command.intent === 'MOVE_LEFT' ||
+      command.intent === 'MOVE_RIGHT' ||
+      command.intent === 'MOVE_UP' ||
+      command.intent === 'MOVE_DOWN' ||
+      command.intent === 'MOVE_STOP'
+    ) {
+      if (command.intent === 'MOVE_STOP') {
+        window.dispatchEvent(new CustomEvent('vr-move-intent', { detail: { intent: 'MOVE_STOP' } }))
+        return 'Movement stopped.'
+      }
+
+      window.dispatchEvent(new CustomEvent('vr-move-intent', { detail: { intent: command.intent } }))
+      return `Camera moving ${command.intent.replace('MOVE_', '').toLowerCase()}.`
+    }
+
+    if (command.intent === 'TOGGLE_BINOCULARS') {
+      const nextState = command.enabled
+      setBinocularMode(nextState)
+      return nextState ? 'Binoculars enabled.' : 'Binoculars disabled.'
     }
 
     if (!('threatId' in command)) return 'Voice command not recognized.'
@@ -632,24 +649,33 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
     const angle = Math.atan2(end[0] - start[0], end[2] - start[2])
     return Math.round((angle * 180) / Math.PI + 360) % 360
   })()
-  const contacts = threats.map((threat) => ({
-    id: threat.id,
-    type: threat.type,
-    detected: detectedSet.has(threat.id),
-    selected: threat.id === selectedId,
-    position: threat.spawnPosition,
-    motion: {
-      amplitude: threat.path.amplitude,
-      frequency: threat.path.frequency,
-      phase: threat.path.phase,
-      speed: threat.path.speed,
-      spawnTimeSeconds: threat.spawnTimeMs / 1000,
-      waypoints: threat.path.waypoints,
-      verticalAmplitude: threat.path.verticalAmplitude,
-      verticalFrequency: threat.path.verticalFrequency,
-      rotationAmplitude: threat.path.rotationAmplitude,
-    },
-  })).filter((contact) => spawnedSet.has(contact.id))
+  const contacts = threats.map((threat) => {
+    const latestClassification = [...events].reverse().find((event) => (
+      event.eventType === 'DRONE_CLASSIFIED' && event.threatId === threat.id
+    ))?.actualClassification
+    const classification: 'Friendly' | 'Unknown' | 'Hostile' | undefined = latestClassification === 'Friendly' || latestClassification === 'Unknown' || latestClassification === 'Hostile'
+      ? latestClassification
+      : undefined
+    return {
+      id: threat.id,
+      type: threat.type,
+      detected: detectedSet.has(threat.id),
+      selected: threat.id === selectedId,
+      position: threat.spawnPosition,
+      ...(classification ? { classification } : {}),
+      motion: {
+        amplitude: threat.path.amplitude,
+        frequency: threat.path.frequency,
+        phase: threat.path.phase,
+        speed: threat.path.speed,
+        spawnTimeSeconds: threat.spawnTimeMs / 1000,
+        waypoints: threat.path.waypoints,
+        verticalAmplitude: threat.path.verticalAmplitude,
+        verticalFrequency: threat.path.verticalFrequency,
+        rotationAmplitude: threat.path.rotationAmplitude,
+      },
+    }
+  }).filter((contact) => spawnedSet.has(contact.id))
 
   const howToContent = (
     <main className={styles.howToScreen} role="dialog" aria-modal="true" aria-labelledby="how-to-title">
@@ -863,6 +889,14 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
             missionStartedAt={missionStarted ? startedAt.current : undefined}
             onThreatDetected={selectThreat}
           />
+          {binocularMode && (
+            <div className={styles.binocularOverlay} role="img" aria-label="Binocular view enabled">
+              <span className={styles.binocularLens} />
+              <span className={styles.binocularLens} />
+              <span className={styles.binocularReticle} />
+              <strong>OPTICS / ACTIVE</strong>
+            </div>
+          )}
           <div className={styles.sceneHud}>
             <span>GARUDA / 3D TRAINING RANGE</span>
             <span>{scenario.time.toUpperCase()} / {scenario.visibility.toUpperCase()}</span>
