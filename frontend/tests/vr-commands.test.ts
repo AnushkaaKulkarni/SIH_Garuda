@@ -32,6 +32,14 @@ test('parses movement and event-backed target actions', () => {
     status: 'command',
     command: { intent: 'MOVE_DOWN' },
   })
+  assert.deepEqual(parseVRCommand('stop', threatIds), {
+    status: 'command',
+    command: { intent: 'MOVE_STOP' },
+  })
+  assert.deepEqual(parseVRCommand('binoculars on', threatIds), {
+    status: 'command',
+    command: { intent: 'TOGGLE_BINOCULARS', enabled: true },
+  })
   assert.deepEqual(parseVRCommand('Classify T-03 as hostile', threatIds), {
     status: 'command',
     command: { intent: 'CLASSIFY_TARGET', threatId: 'T-03', classification: 'hostile' },
@@ -43,6 +51,29 @@ test('parses movement and event-backed target actions', () => {
   assert.deepEqual(parseVRCommand('engage T1', threatIds), {
     status: 'command',
     command: { intent: 'RESPOND_TO_TARGET', threatId: 'T-01', response: 'engage' },
+  })
+})
+
+test('normalizes multilingual aliases to the GARUDA command set', () => {
+  assert.deepEqual(parseVRCommand('aage badho', threatIds), {
+    status: 'command',
+    command: { intent: 'MOVE_FORWARD' },
+  })
+  assert.deepEqual(parseVRCommand('ruk', threatIds), {
+    status: 'command',
+    command: { intent: 'MOVE_STOP' },
+  })
+  assert.deepEqual(parseVRCommand('nazra on', threatIds), {
+    status: 'command',
+    command: { intent: 'TOGGLE_BINOCULARS', enabled: true },
+  })
+  assert.deepEqual(parseVRCommand('T2 ko scan karo', threatIds), {
+    status: 'command',
+    command: { intent: 'DETECT_TARGET', threatId: 'T-02' },
+  })
+  assert.deepEqual(parseVRCommand('T1 ko hostile mark karo', threatIds), {
+    status: 'command',
+    command: { intent: 'CLASSIFY_TARGET', threatId: 'T-01', classification: 'hostile' },
   })
 })
 

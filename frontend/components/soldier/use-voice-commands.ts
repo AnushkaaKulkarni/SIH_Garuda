@@ -41,7 +41,15 @@ function errorMessage(code: string) {
   return 'Voice recognition stopped. Press Enable Voice to try again.'
 }
 
-export function useVoiceCommands(onFinalTranscript: (transcript: string) => void) {
+export type VoiceLanguage = 'English' | 'Hindi' | 'Hinglish'
+
+const resolveSpeechLanguage = (language: VoiceLanguage) => {
+  if (language === 'Hindi') return 'hi-IN'
+  if (language === 'Hinglish') return 'en-IN'
+  return 'en-IN'
+}
+
+export function useVoiceCommands(onFinalTranscript: (transcript: string) => void, language: VoiceLanguage = 'English') {
   const [isSupported, setIsSupported] = useState<boolean | null>(null)
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
@@ -66,7 +74,7 @@ export function useVoiceCommands(onFinalTranscript: (transcript: string) => void
     recognition.current = instance
     instance.continuous = true
     instance.interimResults = false
-    instance.lang = 'en-US'
+    instance.lang = resolveSpeechLanguage(language)
     setIsSupported(true)
 
     instance.onresult = (event) => {
@@ -119,7 +127,12 @@ export function useVoiceCommands(onFinalTranscript: (transcript: string) => void
       try { instance.abort() } catch { /* Recognition may already be stopped. */ }
       recognition.current = null
     }
-  }, [])
+  }, [language])
+
+  useEffect(() => {
+    if (!recognition.current) return
+    recognition.current.lang = resolveSpeechLanguage(language)
+  }, [language])
 
   const startListening = () => {
     if (!recognition.current || !isSupported) return

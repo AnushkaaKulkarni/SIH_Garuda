@@ -755,32 +755,60 @@ function DunePatch({
   )
 }
 
+type MovementIntent = 'MOVE_FORWARD' | 'MOVE_BACKWARD' | 'MOVE_LEFT' | 'MOVE_RIGHT' | 'MOVE_UP' | 'MOVE_DOWN' | 'MOVE_STOP'
+
 function CameraRig() {
   const { camera } = useThree()
+  const perspectiveCamera = camera as THREE.PerspectiveCamera
   const keys = useRef({ forward: false, backward: false, left: false, right: false })
   const voiceMovement = useRef({ forward: false, backward: false, left: false, right: false, up: false, down: false })
+  const defaultFov = useRef(perspectiveCamera.fov)
+  const binocularActive = useRef(false)
+  const activeMoveIntent = useRef<MovementIntent | null>(null)
 
-  const applyVoiceMovement = (intent: 'MOVE_FORWARD' | 'MOVE_BACKWARD' | 'MOVE_LEFT' | 'MOVE_RIGHT' | 'MOVE_UP' | 'MOVE_DOWN' | 'MOVE_STOP') => {
-    const states = {
-      MOVE_FORWARD: 'forward',
-      MOVE_BACKWARD: 'backward',
-      MOVE_LEFT: 'left',
-      MOVE_RIGHT: 'right',
-      MOVE_UP: 'up',
-      MOVE_DOWN: 'down',
-      MOVE_STOP: undefined,
-    } as const
-
-    const axis = states[intent]
+  const clearVoiceMovement = () => {
     voiceMovement.current.forward = false
     voiceMovement.current.backward = false
     voiceMovement.current.left = false
     voiceMovement.current.right = false
     voiceMovement.current.up = false
     voiceMovement.current.down = false
+  }
+
+  const applyVoiceMovement = (intent: MovementIntent) => {
+    if (intent === 'MOVE_STOP') {
+      clearVoiceMovement()
+      keys.current.forward = false
+      keys.current.backward = false
+      keys.current.left = false
+      keys.current.right = false
+      activeMoveIntent.current = null
+      return
+    }
+
+    clearVoiceMovement()
+    activeMoveIntent.current = intent
+
+    const mapping: Partial<Record<MovementIntent, keyof typeof voiceMovement.current>> = {
+      MOVE_FORWARD: 'forward',
+      MOVE_BACKWARD: 'backward',
+      MOVE_LEFT: 'left',
+      MOVE_RIGHT: 'right',
+      MOVE_UP: 'up',
+      MOVE_DOWN: 'down',
+    }
+
+    const axis = mapping[intent]
     if (axis) {
       voiceMovement.current[axis] = true
     }
+  }
+
+  const applyBinocularMode = (enabled: boolean) => {
+    binocularActive.current = enabled
+    const targetFov = enabled ? 22 : defaultFov.current
+    perspectiveCamera.fov = THREE.MathUtils.lerp(perspectiveCamera.fov, targetFov, 0.18)
+    perspectiveCamera.updateProjectionMatrix()
   }
 
   useEffect(() => {
@@ -797,17 +825,23 @@ function CameraRig() {
       if (event.key.toLowerCase() === 'd') keys.current.right = false
     }
     const onVoiceMove = (event: Event) => {
-      const customEvent = event as CustomEvent<{ intent: 'MOVE_FORWARD' | 'MOVE_BACKWARD' | 'MOVE_LEFT' | 'MOVE_RIGHT' | 'MOVE_UP' | 'MOVE_DOWN' | 'MOVE_STOP' }>
+      const customEvent = event as CustomEvent<{ intent: MovementIntent }>
       if (customEvent.detail) applyVoiceMovement(customEvent.detail.intent)
+    }
+    const onBinocularToggle = (event: Event) => {
+      const customEvent = event as CustomEvent<{ enabled: boolean }>
+      if (customEvent.detail) applyBinocularMode(customEvent.detail.enabled)
     }
 
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('vr-move-intent', onVoiceMove)
+    window.addEventListener('vr-binocular-intent', onBinocularToggle)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('vr-move-intent', onVoiceMove)
+      window.removeEventListener('vr-binocular-intent', onBinocularToggle)
     }
   }, [])
 
@@ -819,21 +853,35 @@ function CameraRig() {
     forward.normalize()
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
 
-    if (keys.current.forward || voiceMovement.current.forward) moveVector.add(forward)
-    if (keys.current.backward || voiceMovement.current.backward) moveVector.sub(forward)
-    if (keys.current.left || voiceMovement.current.left) moveVector.sub(right)
-    if (keys.current.right || voiceMovement.current.right) moveVector.add(right)
+    const horizontalIntent = keys.current.forward || voiceMovement.current.forward
+    const backwardIntent = keys.current.backward || voiceMovement.current.backward
+    const leftIntent = keys.current.left || voiceMovement.current.left
+    const rightIntent = keys.current.right || voiceMovement.current.right
+
+    if (horizontalIntent) moveVector.add(forward)
+    if (backwardIntent) moveVector.sub(forward)
+    if (leftIntent) moveVector.sub(right)
+    if (rightIntent) moveVector.add(right)
+
     const verticalMovement = Number(voiceMovement.current.up) - Number(voiceMovement.current.down)
+    const moveActive = horizontalIntent || backwardIntent || leftIntent || rightIntent || verticalMovement !== 0
+    if (!moveActive) {
+      activeMoveIntent.current = null
+    }
 
     if (moveVector.lengthSq() > 0) {
       moveVector.normalize().multiplyScalar(14 * delta)
-      camera.position.add(moveVector)
-      camera.position.y = THREE.MathUtils.clamp(camera.position.y, 4, 20)
+      perspectiveCamera.position.add(moveVector)
+      perspectiveCamera.position.y = THREE.MathUtils.clamp(perspectiveCamera.position.y, 4, 20)
     }
     if (verticalMovement !== 0) {
-      camera.position.y += verticalMovement * 14 * delta
-      camera.position.y = THREE.MathUtils.clamp(camera.position.y, 4, 32)
+      perspectiveCamera.position.y += verticalMovement * 14 * delta
+      perspectiveCamera.position.y = THREE.MathUtils.clamp(perspectiveCamera.position.y, 4, 32)
     }
+
+    const targetFov = binocularActive.current ? 22 : defaultFov.current
+    perspectiveCamera.fov = THREE.MathUtils.lerp(perspectiveCamera.fov, targetFov, 0.16)
+    perspectiveCamera.updateProjectionMatrix()
   })
 
   return null

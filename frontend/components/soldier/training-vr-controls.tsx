@@ -17,6 +17,8 @@ type TrainingVRControlsProps = {
   onExitVR: () => void
 }
 
+export type VoiceLanguage = 'English' | 'Hindi' | 'Hinglish'
+
 export function TrainingVRControls({
   threatIds,
   webXrSupported,
@@ -29,9 +31,10 @@ export function TrainingVRControls({
 }: TrainingVRControlsProps) {
   const [commandHelpOpen, setCommandHelpOpen] = useState(false)
   const [lastAction, setLastAction] = useState('')
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>('English')
   const voice = useVoiceCommands((transcript) => {
     setLastAction(onCommand(transcript))
-  })
+  }, voiceLanguage)
 
   const webXrLabel = immersiveActive
     ? 'ACTIVE'
@@ -46,6 +49,18 @@ export function TrainingVRControls({
         <span>WEBXR <b>{webXrLabel}</b></span>
       </div>
       <div className={styles.actions}>
+        <label className="terrain-chip" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+          Language
+          <select
+            aria-label="Voice command language"
+            value={voiceLanguage}
+            onChange={(event) => setVoiceLanguage(event.target.value as VoiceLanguage)}
+          >
+            <option value="English">English</option>
+            <option value="Hindi">Hindi</option>
+            <option value="Hinglish">Hinglish</option>
+          </select>
+        </label>
         {voice.isListening ? (
           <button className="table-action" onClick={voice.stopListening}><MicOff size={13} /> STOP VOICE</button>
         ) : (

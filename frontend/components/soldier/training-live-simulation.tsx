@@ -544,6 +544,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
     if (command.intent === 'TOGGLE_BINOCULARS') {
       const nextState = command.enabled
       setBinocularMode(nextState)
+      window.dispatchEvent(new CustomEvent('vr-binocular-intent', { detail: { enabled: nextState } }))
       return nextState ? 'Binoculars enabled.' : 'Binoculars disabled.'
     }
 
