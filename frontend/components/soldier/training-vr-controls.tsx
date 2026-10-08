@@ -12,7 +12,9 @@ type TrainingVRControlsProps = {
   xrReady: boolean
   immersiveActive: boolean
   xrError: string
+  binocularsEnabled: boolean
   onCommand: (transcript: string) => string
+  onBinocularsChange: (enabled: boolean) => void
   onEnterVR: () => void
   onExitVR: () => void
 }
@@ -25,7 +27,9 @@ export function TrainingVRControls({
   xrReady,
   immersiveActive,
   xrError,
+  binocularsEnabled,
   onCommand,
+  onBinocularsChange,
   onEnterVR,
   onExitVR,
 }: TrainingVRControlsProps) {
@@ -49,6 +53,20 @@ export function TrainingVRControls({
         <span>WEBXR <b>{webXrLabel}</b></span>
       </div>
       <div className={styles.actions}>
+        <button
+          className={`table-action ${binocularsEnabled ? styles.binocularActive : ''}`}
+          onClick={() => onBinocularsChange(true)}
+          aria-pressed={binocularsEnabled}
+        >
+          BINOCULARS ON
+        </button>
+        <button
+          className={`table-action ${!binocularsEnabled ? styles.binocularActive : ''}`}
+          onClick={() => onBinocularsChange(false)}
+          aria-pressed={!binocularsEnabled}
+        >
+          BINOCULARS OFF
+        </button>
         <label className="terrain-chip" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
           Language
           <select

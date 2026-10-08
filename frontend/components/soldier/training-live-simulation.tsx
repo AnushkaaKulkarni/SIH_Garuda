@@ -204,6 +204,11 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
   const detectedSet = new Set(detectedIds)
   const spawnedSet = new Set(events.filter((event) => event.eventType === 'DRONE_SPAWN').map((event) => event.threatId))
 
+  const setBinoculars = (enabled: boolean) => {
+    setBinocularMode(enabled)
+    window.dispatchEvent(new CustomEvent('vr-binocular-intent', { detail: { enabled } }))
+  }
+
   useEffect(() => {
     if (!hasInitialized.current) {
       hasInitialized.current = true
@@ -542,10 +547,8 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
     }
 
     if (command.intent === 'TOGGLE_BINOCULARS') {
-      const nextState = command.enabled
-      setBinocularMode(nextState)
-      window.dispatchEvent(new CustomEvent('vr-binocular-intent', { detail: { enabled: nextState } }))
-      return nextState ? 'Binoculars enabled.' : 'Binoculars disabled.'
+      setBinoculars(command.enabled)
+      return command.enabled ? 'Binoculars enabled.' : 'Binoculars disabled.'
     }
 
     if (!('threatId' in command)) return 'Voice command not recognized.'
@@ -799,7 +802,9 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
                 xrReady={webXrSupported === true && xrStore !== null}
                 immersiveActive={immersiveActive}
                 xrError={xrError}
+                binocularsEnabled={binocularMode}
                 onCommand={handleVRVoiceCommand}
+                onBinocularsChange={setBinoculars}
                 onEnterVR={enterImmersiveVR}
                 onExitVR={exitImmersiveVR}
               />

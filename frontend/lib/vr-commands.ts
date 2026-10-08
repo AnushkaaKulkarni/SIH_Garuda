@@ -172,7 +172,9 @@ export function parseVRCommand(transcript: string, availableThreatIds: readonly 
   const movementIntent = movement[normalized]
   if (movementIntent) return { status: 'command', command: { intent: movementIntent } }
 
-  const binocularToggle = /^(?:binoculars|nazra|nazar)\s+(on|off)$/.exec(normalized)
+  const binocularToggle =
+    /^(?:(?:turn|switch|set)\s+)?(?:the\s+)?(?:binoculars|nazra|nazar)\s+(on|off)$/.exec(normalized)
+    ?? /^(?:(?:turn|switch|set)\s+)?(on|off)\s+(?:the\s+)?(?:binoculars|nazra|nazar)$/.exec(normalized)
   if (binocularToggle) {
     return { status: 'command', command: { intent: 'TOGGLE_BINOCULARS', enabled: binocularToggle[1] === 'on' } }
   }
@@ -305,6 +307,6 @@ export const VR_COMMAND_GROUPS: {
   {
     category: 'BINOCULARS',
     intents: ['TOGGLE_BINOCULARS'],
-    examples: ['Binoculars on', 'Binoculars off', 'Nazra on', 'Binocular band'],
+    examples: ['Binoculars on', 'Binoculars off', 'Turn binoculars on', 'Turn binoculars off', 'Nazra on', 'Binocular band'],
   },
 ]

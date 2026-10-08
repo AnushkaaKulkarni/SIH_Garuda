@@ -38,6 +38,11 @@
   opacity: 0.48;
 }
 
+.actions .binocularActive {
+  border-color: #d7a558;
+  color: #f0bd72;
+}
+
 .feedback {
   display: grid;
   gap: 2px;

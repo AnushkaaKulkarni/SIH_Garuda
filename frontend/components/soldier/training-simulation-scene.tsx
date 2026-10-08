@@ -240,6 +240,22 @@ function Drone({
         <boxGeometry args={[0.22, 0.045, 0.25]} />
         <meshStandardMaterial color="#263137" metalness={0.62} roughness={0.48} />
       </mesh>
+      {contact.classification && (
+        <mesh position={[0, 0.101, -0.015]} castShadow receiveShadow>
+          <boxGeometry args={[0.14, 0.008, 0.08]} />
+          <meshStandardMaterial
+            color={
+              contact.classification === 'Friendly'
+                ? '#3f7553'
+                : contact.classification === 'Hostile'
+                  ? '#853f3b'
+                  : '#9a7633'
+            }
+            metalness={0.08}
+            roughness={0.76}
+          />
+        </mesh>
+      )}
       {rotorPositions.map((position, index) => {
         const armX = position[0] * 0.52
         const armZ = position[2] * 0.52
@@ -285,11 +301,7 @@ function Drone({
           </mesh>
           <mesh position={[index % 2 === 0 ? -0.11 : 0.11, 0.015, 0]}>
             <sphereGeometry args={[0.025, 8, 6]} />
-            <meshStandardMaterial
-              color={index % 2 === 0 ? '#f05b59' : '#64d8a4'}
-              emissive={index % 2 === 0 ? '#f05b59' : '#64d8a4'}
-              emissiveIntensity={0.7}
-            />
+            <meshStandardMaterial color="#667276" metalness={0.38} roughness={0.48} />
           </mesh>
         </group>
         )
@@ -316,22 +328,6 @@ function Drone({
         <sphereGeometry args={[0.024, 8, 6]} />
         <meshStandardMaterial color="#f4f0dd" emissive="#f4f0dd" emissiveIntensity={0.9} />
       </mesh>
-      {(selected || contact.detected) && (
-        <mesh position={[0, -0.24, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.62, 0.69, 40]} />
-          <meshBasicMaterial color={selected ? '#f4bb61' : '#58d7b3'} side={THREE.DoubleSide} />
-        </mesh>
-      )}
-      {contact.classification && (
-        <mesh position={[0, 0.14, -0.015]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.085, 0.014, 5, 16]} />
-          <meshBasicMaterial
-            color={contact.classification === 'Friendly' ? '#71c8a0' : contact.classification === 'Hostile' ? '#d47d72' : '#c5ae72'}
-            transparent
-            opacity={0.72}
-          />
-        </mesh>
-      )}
       <SceneLabel
         position={[0, 1.48, 0]}
         text={contact.id.match(/T-\d+$/)?.[0] ?? contact.id}
