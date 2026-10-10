@@ -45,22 +45,22 @@ function hasValue(values: Array<number | null>) {
 }
 
 async function requestPermissionIfNeeded(
-  eventType: typeof DeviceMotionEvent | typeof DeviceOrientationEvent,
+  eventType: PermissionAwareConstructor | undefined,
 ) {
-  const requestPermission = (eventType as PermissionAwareConstructor)
-    .requestPermission
-
-  if (!requestPermission) return true
+  const requestPermission = eventType?.requestPermission
+  if (typeof requestPermission !== 'function') return true
   return (await requestPermission.call(eventType)) === 'granted'
 }
 
 export default function PhoneTestPage() {
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
-  const [isSupported, setIsSupported] = useState<boolean | null>(null)
   const [isListening, setIsListening] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState(
-    'WAITING FOR SENSOR DATA',
-  )
+  const [isRequesting, setIsRequesting] = useState(false)
+  const [isSecureContext, setIsSecureContext] = useState<boolean | null>(null)
+  const [buttonTapReceived, setButtonTapReceived] = useState(false)
+  const [orientationReceived, setOrientationReceived] = useState(false)
+  const [motionReceived, setMotionReceived] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState('WAITING FOR SENSOR DATA')
   const [message, setMessage] = useState('')
   const [availability, setAvailability] = useState<SensorAvailability>({
     gyroscope: false,
@@ -86,9 +86,7 @@ export default function PhoneTestPage() {
 
   useEffect(() => {
     setIsMobile(/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent))
-    setIsSupported(
-      'DeviceOrientationEvent' in window || 'DeviceMotionEvent' in window,
-    )
+    setIsSecureContext(window.isSecureContext)
   }, [])
 
   useEffect(() => {
@@ -102,14 +100,13 @@ export default function PhoneTestPage() {
       }
       setOrientation(values)
       if (hasValue([values.alpha, values.beta, values.gamma])) {
+        setOrientationReceived(true)
         setAvailability((current) => ({ ...current, deviceRotation: true }))
         setConnectionStatus('SENSOR DATA RECEIVED')
       }
     }
 
     const handleMotion = (event: DeviceMotionEvent) => {
-      setAvailability((current) => ({ ...current, deviceMotion: true }))
-
       const rate = {
         alpha: event.rotationRate?.alpha ?? null,
         beta: event.rotationRate?.beta ?? null,
@@ -120,21 +117,25 @@ export default function PhoneTestPage() {
         y: event.acceleration?.y ?? null,
         z: event.acceleration?.z ?? null,
       }
+
       setRotationRate(rate)
       setAcceleration(accelerationValues)
+      const hasRotationRate = hasValue([rate.alpha, rate.beta, rate.gamma])
+      const hasAcceleration = hasValue([
+        accelerationValues.x,
+        accelerationValues.y,
+        accelerationValues.z,
+      ])
+      if (hasRotationRate || hasAcceleration) {
+        setMotionReceived(true)
+        setAvailability((current) => ({
+          ...current,
+          deviceMotion: true,
+          gyroscope: current.gyroscope || hasRotationRate,
+          accelerometer: current.accelerometer || hasAcceleration,
+        }))
+      }
 
-      if (hasValue([rate.alpha, rate.beta, rate.gamma])) {
-        setAvailability((current) => ({ ...current, gyroscope: true }))
-      }
-      if (
-        hasValue([
-          accelerationValues.x,
-          accelerationValues.y,
-          accelerationValues.z,
-        ])
-      ) {
-        setAvailability((current) => ({ ...current, accelerometer: true }))
-      }
       if (
         hasValue([
           rate.alpha,
@@ -159,58 +160,76 @@ export default function PhoneTestPage() {
   }, [isListening])
 
   const enableSensors = async () => {
-    setMessage('')
+    if (isListening || isRequesting) return
 
-    if (isMobile === false) {
-      setConnectionStatus('DESKTOP DEVICE DETECTED')
+    setButtonTapReceived(true)
+    setConnectionStatus('BUTTON TAP RECEIVED...')
+    setMessage('')
+    setIsRequesting(true)
+
+    const hasOrientation = typeof window.DeviceOrientationEvent !== 'undefined'
+    const hasMotion = typeof window.DeviceMotionEvent !== 'undefined'
+
+    if (!hasOrientation && !hasMotion) {
+      setConnectionStatus('PHONE SENSORS NOT SUPPORTED')
+      setMessage('This browser does not expose DeviceOrientationEvent or DeviceMotionEvent.')
+      setIsRequesting(false)
       return
     }
 
     if (!window.isSecureContext) {
-      setMessage('Motion and orientation sensors require a secure HTTPS page.')
+      setConnectionStatus('INSECURE CONTEXT — SENSORS NOT ENABLED')
+      setMessage(
+        'This page is using HTTP and window.isSecureContext is false. The browser may block motion/orientation sensors here. Open this page through a trusted HTTPS development URL; sensor access was not requested.',
+      )
+      setIsRequesting(false)
       return
     }
 
-    const hasOrientation = 'DeviceOrientationEvent' in window
-    const hasMotion = 'DeviceMotionEvent' in window
-    if (!hasOrientation && !hasMotion) {
-      setIsSupported(false)
-      setConnectionStatus('PHONE SENSORS NOT SUPPORTED')
-      return
+    if (!hasOrientation || !hasMotion) {
+      setMessage(
+        `Partial sensor API support: DeviceOrientationEvent is ${hasOrientation ? 'available' : 'unavailable'}; DeviceMotionEvent is ${hasMotion ? 'available' : 'unavailable'}.`,
+      )
     }
 
     try {
       const permissions = await Promise.all([
         hasOrientation
-          ? requestPermissionIfNeeded(window.DeviceOrientationEvent)
+          ? requestPermissionIfNeeded(
+              window.DeviceOrientationEvent as unknown as PermissionAwareConstructor,
+            )
           : Promise.resolve(true),
         hasMotion
-          ? requestPermissionIfNeeded(window.DeviceMotionEvent)
+          ? requestPermissionIfNeeded(
+              window.DeviceMotionEvent as unknown as PermissionAwareConstructor,
+            )
           : Promise.resolve(true),
       ])
 
       if (permissions.some((granted) => !granted)) {
         setConnectionStatus('SENSOR ACCESS DENIED')
-        setMessage(
-          'Please allow motion/orientation access in the browser.',
-        )
+        setMessage('Permission was not granted. Check this site’s motion/orientation permissions in browser settings, then reload and try again.')
         return
       }
 
-      setIsSupported(true)
       setConnectionStatus('WAITING FOR SENSOR DATA')
       setIsListening(true)
-    } catch {
-      setConnectionStatus('SENSOR ACCESS DENIED')
-      setMessage('Please allow motion/orientation access in the browser.')
+    } catch (error) {
+      setConnectionStatus('SENSOR ACCESS ERROR')
+      const detail = error instanceof Error ? error.message : 'The browser rejected sensor access.'
+      setMessage(
+        !window.isSecureContext
+          ? `The browser rejected sensor access in this insecure context. Use trusted HTTPS. Details: ${detail}`
+          : `Could not enable phone sensors. Check browser permissions and try again. Details: ${detail}`,
+      )
+    } finally {
+      setIsRequesting(false)
     }
   }
 
   const status = isMobile === false
     ? 'DESKTOP DEVICE DETECTED'
-    : isSupported === false
-      ? 'PHONE SENSORS NOT SUPPORTED'
-      : connectionStatus
+    : connectionStatus
 
   return (
     <main className={styles.page}>
@@ -230,60 +249,51 @@ export default function PhoneTestPage() {
         <section className={styles.intro}>
           <p className="eyebrow">DEVICE SENSOR CHECK</p>
           <h1>PHONE ORIENTATION TEST</h1>
-          <p>
-            Verify that your mobile browser is receiving live motion and
-            orientation sensor data.
-          </p>
+          <p>Verify that your mobile browser is receiving live motion and orientation sensor data.</p>
         </section>
 
         <section className={styles.statusPanel} aria-live="polite">
           <div>
             <span className={styles.label}>CONNECTION STATUS</span>
             <strong
-              className={`${styles.connection} ${
-                status === 'SENSOR DATA RECEIVED' ? styles.connected : ''
-              }`}
+              className={`${styles.connection} ${status === 'SENSOR DATA RECEIVED' ? styles.connected : ''}`}
             >
               <span className={styles.statusDot} />
               {status}
             </strong>
           </div>
+          {buttonTapReceived && (
+            <p className={styles.notice}>BUTTON TAP RECEIVED — checking browser sensor access.</p>
+          )}
           {isMobile === false && (
-            <p className={styles.notice}>
-              This diagnostic is intended to be tested on a mobile device.
-            </p>
+            <p className={styles.notice}>This diagnostic is intended to be tested on a mobile device.</p>
           )}
           {status === 'PHONE SENSORS NOT SUPPORTED' && (
-            <p className={styles.notice}>PHONE SENSORS NOT SUPPORTED</p>
+            <p className={styles.error}>{message || 'This browser does not support the required sensor APIs.'}</p>
           )}
           {status === 'SENSOR ACCESS DENIED' && (
-            <p className={styles.error}>
-              SENSOR ACCESS DENIED
-              <br />
-              Please allow motion/orientation access in the browser.
-            </p>
+            <p className={styles.error}>SENSOR ACCESS DENIED<br />Please allow motion/orientation access in the browser.</p>
           )}
-          {message && status !== 'SENSOR ACCESS DENIED' && (
-            <p className={styles.error}>{message}</p>
+          {message && <p className={styles.error}>{message}</p>}
+          {isSecureContext === false && (
+            <p className={styles.notice}>
+              Current address is not a secure context (HTTPS). Sensor access may be blocked by the browser. This page will not bypass that restriction.
+            </p>
           )}
         </section>
 
         <section className={styles.panel}>
           <h2>SENSOR STATUS</h2>
+          <p className={styles.readingStatus}>
+            Orientation readings: <strong>{orientationReceived ? 'RECEIVED' : 'NOT RECEIVED'}</strong>
+            <br />
+            Motion readings: <strong>{motionReceived ? 'RECEIVED' : 'NOT RECEIVED'}</strong>
+          </p>
           <dl className={styles.sensorList}>
             <SensorRow label="Gyroscope" available={availability.gyroscope} />
-            <SensorRow
-              label="Accelerometer"
-              available={availability.accelerometer}
-            />
-            <SensorRow
-              label="Device Motion"
-              available={availability.deviceMotion}
-            />
-            <SensorRow
-              label="Device Rotation"
-              available={availability.deviceRotation}
-            />
+            <SensorRow label="Accelerometer" available={availability.accelerometer} />
+            <SensorRow label="Device Motion" available={availability.deviceMotion} />
+            <SensorRow label="Device Rotation" available={availability.deviceRotation} />
           </dl>
         </section>
 
@@ -318,13 +328,13 @@ export default function PhoneTestPage() {
           className={`button ${styles.enableButton}`}
           type="button"
           onClick={enableSensors}
-          disabled={
-            isMobile !== true ||
-            isSupported === false ||
-            isListening
-          }
+          disabled={isListening || isRequesting}
         >
-          {isListening ? 'PHONE SENSORS ENABLED' : 'ENABLE PHONE SENSORS'}
+          {isListening
+            ? 'LISTENING — WAITING FOR DATA'
+            : isRequesting
+              ? 'REQUESTING SENSOR ACCESS…'
+              : 'ENABLE PHONE SENSORS'}
         </button>
 
         <section className={styles.instructions}>
@@ -332,18 +342,15 @@ export default function PhoneTestPage() {
           <ol>
             <li>Open this page on your Android phone.</li>
             <li>Press ENABLE PHONE SENSORS.</li>
-            <li>Allow motion/orientation permission.</li>
-            <li>Hold the phone normally.</li>
-            <li>Rotate left/right.</li>
-            <li>Tilt the phone up/down.</li>
-            <li>Rotate the phone clockwise/counter-clockwise.</li>
+            <li>Allow motion/orientation permission if prompted.</li>
+            <li>Hold the phone normally and rotate left/right.</li>
+            <li>Tilt the phone up/down and clockwise/counter-clockwise.</li>
             <li>Watch the orientation values change.</li>
           </ol>
-          <p>
-            <strong>Expected result:</strong> “Yaw/Pitch/Roll values should
-            change when the phone moves.”
-          </p>
+          <p><strong>Expected result:</strong> Yaw/Pitch/Roll values should change when the phone moves.</p>
+          <p><strong>Local HTTP note:</strong> If readings do not arrive at the local IP address, use a trusted HTTPS development URL. Do not disable browser security.</p>
         </section>
+
         <footer className={styles.footer}>
           PHONE → BROWSER → SENSOR VALUES
           <span>No streaming or simulation integration</span>
@@ -353,13 +360,7 @@ export default function PhoneTestPage() {
   )
 }
 
-function SensorRow({
-  label,
-  available,
-}: {
-  label: string
-  available: boolean
-}) {
+function SensorRow({ label, available }: { label: string; available: boolean }) {
   return (
     <div className={styles.sensorRow}>
       <dt>{label}</dt>

@@ -108,6 +108,17 @@
   margin: 0;
 }
 
+.readingStatus {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.readingStatus strong {
+  color: var(--amber);
+}
+
 .sensorRow,
 .valueRow {
   display: flex;
