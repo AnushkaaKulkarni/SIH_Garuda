@@ -90,7 +90,7 @@ export const copy = {
 export const defaultCopy = copy.en
 
 export const scenarios: Scenario[] = [
-  { id: 'himalayan-shield', name: 'Himalayan Shield', type: 'Air', terrain: 'High Altitude', time: 'Dawn', visibility: 'Degraded', difficulty: 'Hard', threatCount: 6, description: 'High-altitude drone intrusion across a sensitive mountain corridor.', image: IMAGE_MOUNTAIN, status: 'Active' },
+  { id: 'himalayan-shield', name: 'Himalayan Shield', type: 'Air', terrain: 'High Altitude', time: 'Dawn', visibility: 'Degraded', difficulty: 'Hard', threatCount: 7, description: 'High-altitude drone intrusion across a sensitive mountain corridor.', image: IMAGE_MOUNTAIN, status: 'Active' },
   { id: 'desert-sentinel', name: 'Desert Sentinel', type: 'Land', terrain: 'Desert', time: 'Night', visibility: 'Clear', difficulty: 'Medium', threatCount: 4, description: 'Border surveillance exercise across a remote desert installation.', image: IMAGE_DESERT, status: 'Active' },
   { id: 'coastal-watch', name: 'Coastal Watch', type: 'Coastal', terrain: 'Coastline', time: 'Day', visibility: 'Clear', difficulty: 'Medium', threatCount: 5, description: 'Maritime surveillance around a protected coastal approach.', image: IMAGE_COAST, status: 'Active' },
   { id: 'urban-vigilance', name: 'Urban Vigilance', type: 'Urban', terrain: 'Urban', time: 'Dusk', visibility: 'Reduced', difficulty: 'Hard', threatCount: 7, description: 'Dense city infrastructure and ambiguous civilian air traffic.', image: IMAGE_URBAN, status: 'Active' },

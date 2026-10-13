@@ -15,6 +15,7 @@ export type PhoneSceneSnapshot = {
   contacts: Array<{
     id: string
     type: string
+    attackGroupId?: string
     detected: boolean
     selected: boolean
     position: [number, number, number]

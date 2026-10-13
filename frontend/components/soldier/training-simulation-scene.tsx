@@ -14,6 +14,7 @@ const TrainingXRLayer = lazy(() => import('./training-xr-layer').then((module) =
 export type SimulationContact = {
   id: string
   type: string
+  attackGroupId?: string
   detected: boolean
   selected: boolean
   position: [number, number, number]
@@ -345,6 +346,7 @@ function Drone({
         width={4.9}
         opacity={selected ? 1 : 0.86}
       />
+      {contact.attackGroupId && <SceneLabel position={[0, 2.15, 0]} text={contact.attackGroupId} color="#74cbbb" width={5.2} opacity={0.9} />}
       {contact.eventCue && (
         <>
           <mesh position={[0, -0.23, 0]} rotation={[-Math.PI / 2, 0, 0]}>

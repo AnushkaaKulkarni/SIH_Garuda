@@ -2,9 +2,13 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   calculateSessionScore,
+  configureThreatsForAttackMode,
+  getConfiguredThreatCount,
   generateHimalayanThreats,
   getHimalayanThreatAssessment,
+  getSessionMetrics,
   getWhatIfOpportunity,
+  resolveMissionConfiguration,
   type SessionEvent,
   type SessionThreat,
   type TrainingSession,
@@ -210,4 +214,58 @@ test('Himalayan assessment raises fast approaches and de-escalates retreating co
   assert.equal(retreatAssessment.direction, 'Away')
   assert.equal(retreatAssessment.status, 'Departing')
   assert.equal(retreatAssessment.priority, 'Medium')
+})
+
+test('configuration validates all difficulties and attack modes with compatible defaults', () => {
+  const scenario = { difficulty: 'Hard' as const, type: 'Air' }
+  assert.deepEqual(resolveMissionConfiguration(scenario, {}), { difficulty: 'Hard', attackMode: 'multiple' })
+  assert.deepEqual(resolveMissionConfiguration({ ...scenario, type: 'Swarm' }, { difficulty: 'invalid', attackMode: 'invalid' }), { difficulty: 'Hard', attackMode: 'swarm' })
+  for (const difficulty of ['Easy', 'Medium', 'Hard', 'Expert'] as const) {
+    for (const attackMode of ['single', 'multiple', 'swarm', 'mixed'] as const) {
+      assert.deepEqual(resolveMissionConfiguration(scenario, { difficulty, attackMode }), { difficulty, attackMode })
+    }
+  }
+})
+
+test('attack modes produce reproducible single, independent, grouped and mixed threat sets at every difficulty', () => {
+  for (const difficulty of ['Easy', 'Medium', 'Hard', 'Expert'] as const) {
+    const source = generateHimalayanThreats(54321, difficulty)
+    const single = configureThreatsForAttackMode(source, 'single', difficulty, 54321)
+    const multiple = configureThreatsForAttackMode(source, 'multiple', difficulty, 54321)
+    const swarm = configureThreatsForAttackMode(source, 'swarm', difficulty, 54321)
+    const mixed = configureThreatsForAttackMode(source, 'mixed', difficulty, 54321)
+    assert.equal(single.length, getConfiguredThreatCount('himalayan-shield', 7, difficulty, 'single'))
+    assert.equal(single.length, 1)
+    assert.ok(multiple.length >= 2)
+    assert.ok(multiple.every((threat) => !threat.attackGroupId))
+    assert.ok(swarm.length >= 3 && swarm.every((threat) => threat.attackGroupId === 'SWARM-01' && threat.path.waypoints?.length))
+    assert.equal(new Set(swarm.map((threat) => threat.attackGroupId)).size, 1)
+    assert.ok(mixed.length >= 5)
+    assert.equal(mixed.filter((threat) => threat.attackGroupId === 'SWARM-01').length, 3)
+    assert.ok(mixed.filter((threat) => !threat.attackGroupId).length >= 2)
+    assert.deepEqual(mixed, configureThreatsForAttackMode(source, 'mixed', difficulty, 54321))
+  }
+})
+
+test('v4 detection scoring measures only time after availability and rejects pre-arrival credit', () => {
+  const lateContact = threat('late', 'Hostile', 20_000)
+  const valid = event('valid', 'DRONE_DETECTED', 21_000, { threatId: lateContact.id, detectableAtMs: 20_000 })
+  const early = event('early', 'DRONE_DETECTED', 19_000, { threatId: lateContact.id, detectableAtMs: 20_000 })
+  const validScore = calculateSessionScore([lateContact], [valid], 'Hard', 'event-performance-v4')
+  const earlyScore = calculateSessionScore([lateContact], [early], 'Hard', 'event-performance-v4')
+  assert.ok(validScore.detectionScore > 28)
+  assert.equal(earlyScore.detectionScore, 0)
+  const recorded = session([lateContact], [early])
+  recorded.scoreRule = 'event-performance-v4'
+  recorded.events = [early]
+  assert.equal(getSessionMetrics(recorded).detected, 0)
+  assert.equal(getSessionMetrics(recorded).averageDetectionMs, null)
+})
+
+test('v4 response rubric follows assessed priority while historical response rules remain versioned', () => {
+  const target = threat('target', 'Hostile')
+  target.priority = 'Medium'
+  const response = event('respond', 'RESPONSE_SELECTED', 1_000, { threatId: target.id, action: 'Track priority threat' })
+  assert.equal(calculateSessionScore([target], [response], 'Hard', 'event-performance-v4').responseScore, 20)
+  assert.equal(calculateSessionScore([target], [response], 'Hard', 'event-performance-v3').responseScore, 0)
 })

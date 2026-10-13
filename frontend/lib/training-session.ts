@@ -1,7 +1,8 @@
 export type ThreatPriority = 'High' | 'Medium' | 'Low'
 export type TrainingDifficulty = 'Easy' | 'Medium' | 'Hard' | 'Expert'
 export type TrainingMode = 'desktop' | 'vr'
-export type SessionScoreRule = 'event-performance-v1' | 'event-performance-v2' | 'event-performance-v3' | 'legacy-hostile-response'
+export type AttackMode = 'single' | 'multiple' | 'swarm' | 'mixed'
+export type SessionScoreRule = 'event-performance-v1' | 'event-performance-v2' | 'event-performance-v3' | 'event-performance-v4' | 'legacy-hostile-response'
 export type SimulationEventType =
   | 'MISSION_STARTED'
   | 'DRONE_SPAWN'
@@ -23,6 +24,8 @@ export type SessionThreat = {
   priority: ThreatPriority
   spawnPosition: [number, number, number]
   spawnTimeMs: number
+  attackGroupId?: string
+  attackGroupType?: 'swarm'
   path: {
     trajectory?: 'approach' | 'crossing' | 'altitude' | 'retreat' | 'arc' | 'parallel'
     speed?: number
@@ -41,6 +44,7 @@ export type SessionEvent = {
   id: string
   timestamp: string
   elapsedMs: number
+  detectableAtMs?: number
   eventType: SimulationEventType
   threatId?: string
   position?: [number, number, number]
@@ -65,11 +69,13 @@ export type SessionScoreBreakdown = {
 }
 
 export type TrainingSession = {
-  version: 3 | 4
+  version: 3 | 4 | 5
   mode?: TrainingMode
   id: string
   seed: number
   difficulty: TrainingDifficulty
+  attackMode?: AttackMode
+  generatorVersion?: number
   scenario: string
   score: number
   completedAt: string
@@ -131,10 +137,21 @@ const detectionWindows: Record<TrainingDifficulty, number> = {
   Expert: 6_000,
 }
 
+export function getDetectionWindowMs(difficulty: TrainingDifficulty) {
+  return detectionWindows[difficulty]
+}
+
 export function getPriority(classification: string): ThreatPriority {
   if (classification === 'Hostile') return 'High'
   if (classification === 'Unknown') return 'Medium'
   return 'Low'
+}
+
+export function getScenarioPriority(classification: string, trajectory: string | undefined, speed: number) {
+  if (classification === 'Friendly') return 'Low' as const
+  if (classification === 'Hostile' && trajectory === 'approach' && speed >= 0.75) return 'High' as const
+  if (classification === 'Unknown' && trajectory === 'approach' && speed >= 1.2) return 'High' as const
+  return 'Medium' as const
 }
 
 export type ProtectedZone = {
@@ -272,10 +289,19 @@ export function generateHimalayanThreats(seed: number, difficulty: TrainingDiffi
     const expectedClassification = route.hostile
       ? classificationRoll < 0.74 ? 'Hostile' : classificationRoll < 0.9 ? 'Unknown' : 'Friendly'
       : classificationRoll < 0.68 ? 'Friendly' : classificationRoll < 0.9 ? 'Unknown' : 'Hostile'
-    const signalClassification = expectedClassification === 'Friendly' && random() < 0.2 ? 'Unknown' :
-      expectedClassification === 'Hostile' && random() < 0.28 ? 'Unknown' :
-      expectedClassification === 'Unknown' && random() < 0.15 ? 'Friendly' : expectedClassification
-    const signalConfidence = Math.max(48, Math.min(96, Math.round(74 + random() * 20)))
+    const evidenceProfile: Record<TrainingDifficulty, { error: number; confidenceMin: number; confidenceSpan: number }> = {
+      Easy: { error: 0.08, confidenceMin: 84, confidenceSpan: 13 },
+      Medium: { error: 0.15, confidenceMin: 76, confidenceSpan: 17 },
+      Hard: { error: 0.24, confidenceMin: 65, confidenceSpan: 20 },
+      Expert: { error: 0.34, confidenceMin: 54, confidenceSpan: 22 },
+    }
+    const evidence = evidenceProfile[difficulty]
+    const signalClassification = random() < evidence.error
+      ? expectedClassification === 'Unknown'
+        ? (random() < 0.5 ? 'Friendly' : 'Hostile')
+        : 'Unknown'
+      : expectedClassification
+    const signalConfidence = Math.round(evidence.confidenceMin + random() * evidence.confidenceSpan)
     return {
       id: `T-${String(index + 1).padStart(2, '0')}`,
       type: route.type,
@@ -312,6 +338,108 @@ export function generateHimalayanThreats(seed: number, difficulty: TrainingDiffi
   })
 }
 
+function offsetThreat(threat: SessionThreat, id: string, dx: number, dz: number): SessionThreat {
+  const offsetPoint = ([x, y, z]: [number, number, number]): [number, number, number] => [x + dx, y, z + dz]
+  return {
+    ...threat,
+    id,
+    spawnPosition: offsetPoint(threat.spawnPosition),
+    path: {
+      ...threat.path,
+      center: offsetPoint(threat.path.center),
+      waypoints: threat.path.waypoints?.map(offsetPoint),
+    },
+  }
+}
+
+export function configureThreatsForAttackMode(
+  source: SessionThreat[],
+  mode: AttackMode,
+  difficulty: TrainingDifficulty,
+  seed: number,
+): SessionThreat[] {
+  const interval: Record<TrainingDifficulty, number> = { Easy: 4200, Medium: 3000, Hard: 2000, Expert: 1200 }
+  const random = createSeededRandom(seed ^ 0x41a7)
+  const base = [...source]
+  while (base.length < (mode === 'mixed' ? 5 : mode === 'swarm' ? 3 : mode === 'multiple' ? 2 : 1)) {
+    const original = source[base.length % Math.max(source.length, 1)]
+    if (!original) break
+    const copy = offsetThreat(original, `${original.id}-R${base.length + 1}`, (base.length + 1) * 2.4, (random() - 0.5) * 5)
+    copy.spawnTimeMs = interval[difficulty] * base.length
+    base.push(copy)
+  }
+  if (mode === 'single') return base.slice(0, 1).map(({ attackGroupId: _group, attackGroupType: _type, ...threat }) => threat)
+
+  const clearGroup = (threat: SessionThreat): SessionThreat => {
+    const { attackGroupId: _group, attackGroupType: _type, ...independent } = threat
+    return independent
+  }
+  if (mode === 'multiple') return base.map(clearGroup)
+
+  const groupSize = mode === 'swarm' ? base.length : Math.min(3, base.length)
+  const leader = base[0]
+  const leaderPoints = leader.path.waypoints?.length ? leader.path.waypoints : [leader.spawnPosition]
+  const group = base.slice(0, groupSize).map((threat, index) => {
+    const dx = (index % 3 - 1) * 2.2
+    const dz = Math.floor(index / 3) * 2
+    const waypoints = leaderPoints.map((point) => [point[0] + dx, point[1], point[2] + dz] as [number, number, number])
+    return {
+      ...threat,
+      spawnPosition: waypoints[0],
+      spawnTimeMs: leader.spawnTimeMs + Math.floor(index / 3) * interval[difficulty] + (index % 3) * 180,
+      attackGroupId: 'SWARM-01',
+      attackGroupType: 'swarm' as const,
+      path: { ...threat.path, center: waypoints[0], waypoints, phase: leader.path.phase + (index % 3) * 0.04 },
+    }
+  })
+  if (mode === 'swarm') return group
+
+  const independent = base.slice(groupSize).map((threat, index) => ({
+    ...clearGroup(threat),
+    spawnTimeMs: leader.spawnTimeMs + 2 * interval[difficulty] + index * interval[difficulty],
+  }))
+  return [...group, ...independent]
+}
+
+export function isTrainingDifficulty(value: unknown): value is TrainingDifficulty {
+  return value === 'Easy' || value === 'Medium' || value === 'Hard' || value === 'Expert'
+}
+
+export function isAttackMode(value: unknown): value is AttackMode {
+  return value === 'single' || value === 'multiple' || value === 'swarm' || value === 'mixed'
+}
+
+export function resolveMissionConfiguration(
+  scenario: { difficulty: TrainingDifficulty; type: string },
+  values: { difficulty?: unknown; attackMode?: unknown },
+) {
+  return {
+    difficulty: isTrainingDifficulty(values.difficulty) ? values.difficulty : scenario.difficulty,
+    attackMode: isAttackMode(values.attackMode) ? values.attackMode : scenario.type === 'Swarm' ? 'swarm' as const : 'multiple' as const,
+  }
+}
+
+export function getConfiguredThreatCount(
+  scenarioId: string,
+  scenarioThreatCount: number,
+  difficulty: TrainingDifficulty,
+  mode: AttackMode,
+) {
+  const baseCount = scenarioId === 'himalayan-shield'
+    ? ({ Easy: 5, Medium: 6, Hard: 7, Expert: 8 } satisfies Record<TrainingDifficulty, number>)[difficulty]
+    : Math.max(1, Math.round(scenarioThreatCount * ({ Easy: 0.75, Medium: 1, Hard: 1.2, Expert: 1.4 } satisfies Record<TrainingDifficulty, number>)[difficulty]))
+  if (mode === 'single') return 1
+  if (mode === 'swarm') return Math.max(3, baseCount)
+  if (mode === 'mixed') return Math.max(5, baseCount)
+  return Math.max(2, baseCount)
+}
+
+export function expectedResponseForPriority(priority: ThreatPriority) {
+  if (priority === 'High') return 'Escalate alert'
+  if (priority === 'Medium') return 'Track priority threat'
+  return 'Continue monitoring'
+}
+
 export function createSessionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -345,15 +473,20 @@ function latestEventsByThreat(events: SessionEvent[], eventType: SimulationEvent
   return latest
 }
 
-function responseIsCorrect(event: SessionEvent, threats: SessionThreat[]) {
+function responseIsCorrect(event: SessionEvent, threats: SessionThreat[], scoreRule: SessionScoreRule = 'event-performance-v3') {
   const threat = threats.find((candidate) => candidate.id === event.threatId)
   if (!threat) return false
+  if (scoreRule === 'event-performance-v4') return event.action === expectedResponseForPriority(threat.priority)
   const expectedAction = threat.expectedClassification === 'Hostile'
     ? 'Escalate alert'
-    : threat.expectedClassification === 'Unknown'
-      ? 'Track priority threat'
-      : 'Continue monitoring'
+    : threat.expectedClassification === 'Unknown' ? 'Track priority threat' : 'Continue monitoring'
   return event.action === expectedAction
+}
+
+function detectionElapsed(event: SessionEvent, threat: SessionThreat, useAvailabilityClock: boolean) {
+  const detectableAtMs = event.detectableAtMs ?? threat.spawnTimeMs
+  if (useAvailabilityClock && event.elapsedMs < detectableAtMs) return null
+  return Math.max(0, event.elapsedMs - (useAvailabilityClock ? detectableAtMs : 0))
 }
 
 export function calculateSessionScore(
@@ -371,7 +504,9 @@ export function calculateSessionScore(
   const detectionScore = threats.reduce((total, threat) => {
     const detection = detections.get(threat.id)
     if (!detection) return total
-    const speedFactor = Math.max(0, 1 - (detection.elapsedMs / detectionWindow) * 0.35)
+    const elapsedMs = detectionElapsed(detection, threat, scoreRule === 'event-performance-v4')
+    if (elapsedMs === null) return total
+    const speedFactor = Math.max(0, 1 - (elapsedMs / detectionWindow) * 0.35)
     return total + (30 / safeThreatCount) * speedFactor
   }, 0)
   const classificationScore = threats.reduce(
@@ -384,11 +519,13 @@ export function calculateSessionScore(
   )
   const responseEvents = events.filter((event) => event.eventType === 'RESPONSE_SELECTED')
   const latestResponseEvent = responseEvents.at(-1)
-  const responseScore = scoreRule === 'event-performance-v3'
+  const responseScore = scoreRule === 'event-performance-v4'
+    ? Math.min(20, (20 / safeThreatCount) * [...latestEventsByThreat(responseEvents, 'RESPONSE_SELECTED').values()].filter((event) => responseIsCorrect(event, threats, scoreRule)).length)
+    : scoreRule === 'event-performance-v3'
     ? responseEvents.length
-      ? (20 * responseEvents.filter((event) => responseIsCorrect(event, threats)).length) / responseEvents.length
+      ? (20 * responseEvents.filter((event) => responseIsCorrect(event, threats, scoreRule)).length) / responseEvents.length
       : 0
-    : latestResponseEvent && responseIsCorrect(latestResponseEvent, threats) ? 20 : 0
+    : latestResponseEvent && responseIsCorrect(latestResponseEvent, threats, scoreRule) ? 20 : 0
   const incorrectClassificationCount = [...classifications.values()].filter((event) => event.result === 'incorrect').length
   const incorrectPriorityCount = [...priorities.values()].filter((event) => event.result === 'incorrect').length
   const penaltyScore = scoreRule === 'event-performance-v1'
@@ -396,7 +533,7 @@ export function calculateSessionScore(
         20,
         incorrectClassificationCount * 2 +
           incorrectPriorityCount * 2 +
-          (latestResponseEvent && !responseIsCorrect(latestResponseEvent, threats) ? 4 : 0),
+          (latestResponseEvent && !responseIsCorrect(latestResponseEvent, threats, scoreRule) ? 4 : 0),
       )
     : 0
   const awarded = Math.max(
@@ -407,6 +544,8 @@ export function calculateSessionScore(
   return {
     rule: scoreRule === 'event-performance-v1'
       ? 'Detection (30), classification (30), prioritization (20), and response (20), with deductions for incorrect decisions.'
+      : scoreRule === 'event-performance-v4'
+        ? 'Detectable-time detection (30), classification (30), prioritization (20), and per-contact rubric response (20), weighted by contact count.'
       : scoreRule === 'event-performance-v3'
         ? 'Detection (30), classification (30), prioritization (20), and response (20); each recorded response contributes to response accuracy.'
         : 'Detection (30), classification (30), prioritization (20), and response (20); incorrect or missed outcomes earn no points in that category.',
@@ -421,7 +560,6 @@ export function calculateSessionScore(
 
 export function getSessionMetrics(session: TrainingSession): SessionMetrics {
   const detectionEvents = session.events.filter((event) => event.eventType === 'DRONE_DETECTED')
-  const detectedThreatIds = new Set(detectionEvents.map((event) => event.threatId))
   const missed = new Set(
     session.events
       .filter((event) => event.eventType === 'DRONE_MISSED')
@@ -434,9 +572,21 @@ export function getSessionMetrics(session: TrainingSession): SessionMetrics {
   const priorityEvents = [...latestEventsByThreat(session.events, 'THREAT_PRIORITIZED').values()]
   const correctPriorityDecisions = priorityEvents.filter((event) => event.result === 'correct').length
   const incorrectPriorityDecisions = priorityEvents.filter((event) => event.result === 'incorrect').length
-  const detectionsSorted = [...detectionEvents].sort((first, second) => first.elapsedMs - second.elapsedMs)
   const responseEvents = session.events.filter((event) => event.eventType === 'RESPONSE_SELECTED')
-  const correctResponses = responseEvents.filter((event) => responseIsCorrect(event, session.threats)).length
+  const useAvailabilityClock = session.scoreRule === 'event-performance-v4'
+  const validDetectionEvents = detectionEvents.filter((event) => {
+    const threat = session.threats.find((item) => item.id === event.threatId)
+    return Boolean(threat && detectionElapsed(event, threat, useAvailabilityClock) !== null)
+  })
+  const scoredDetectionTimes = validDetectionEvents.map((event) => {
+    const threat = session.threats.find((item) => item.id === event.threatId)!
+    return { event, elapsedMs: detectionElapsed(event, threat, useAvailabilityClock)! }
+  })
+  const detectedThreatIds = new Set(validDetectionEvents.map((event) => event.threatId))
+  const evaluatedResponses = session.scoreRule === 'event-performance-v4'
+    ? [...latestEventsByThreat(responseEvents, 'RESPONSE_SELECTED').values()]
+    : responseEvents
+  const correctResponses = evaluatedResponses.filter((event) => responseIsCorrect(event, session.threats, session.scoreRule)).length
   const scoredClassifications = correctClassifications + incorrectClassifications
   const scoredPriorities = correctPriorityDecisions + incorrectPriorityDecisions
   return {
@@ -444,12 +594,12 @@ export function getSessionMetrics(session: TrainingSession): SessionMetrics {
     detected: detectedThreatIds.size,
     missed,
     detectionAccuracy: session.threats.length ? (detectedThreatIds.size / session.threats.length) * 100 : 0,
-    averageDetectionMs: detectionEvents.length
-      ? detectionEvents.reduce((total, event) => total + event.elapsedMs, 0) / detectionEvents.length
+    averageDetectionMs: scoredDetectionTimes.length
+      ? scoredDetectionTimes.reduce((total, item) => total + item.elapsedMs, 0) / scoredDetectionTimes.length
       : null,
-    fastestDetection: detectionsSorted[0] ?? null,
-    slowestDetection: detectionsSorted.at(-1) ?? null,
-    lateDetections: detectionEvents.filter((event) => event.elapsedMs > detectionWindows[session.difficulty]).length,
+    fastestDetection: [...scoredDetectionTimes].sort((first, second) => first.elapsedMs - second.elapsedMs)[0]?.event ?? null,
+    slowestDetection: [...scoredDetectionTimes].sort((first, second) => second.elapsedMs - first.elapsedMs)[0]?.event ?? null,
+    lateDetections: scoredDetectionTimes.filter((item) => item.elapsedMs > detectionWindows[session.difficulty]).length,
     correctClassifications,
     incorrectClassifications,
     classificationAccuracy: scoredClassifications
@@ -458,7 +608,7 @@ export function getSessionMetrics(session: TrainingSession): SessionMetrics {
     priorityAccuracy: scoredPriorities ? (correctPriorityDecisions / scoredPriorities) * 100 : null,
     correctPriorityDecisions,
     incorrectPriorityDecisions,
-    responseAccuracy: responseEvents.length ? (correctResponses / responseEvents.length) * 100 : null,
+    responseAccuracy: evaluatedResponses.length ? (correctResponses / evaluatedResponses.length) * 100 : null,
     successfulEngagements: session.events.some(
       (event) => event.eventType === 'DRONE_ENGAGED' || event.eventType === 'DRONE_NEUTRALIZED',
     )
@@ -469,7 +619,7 @@ export function getSessionMetrics(session: TrainingSession): SessionMetrics {
         ).length
       : null,
     incorrectDecisions: incorrectClassifications + incorrectPriorityDecisions +
-      responseEvents.filter((event) => !responseIsCorrect(event, session.threats)).length,
+      responseEvents.filter((event) => !responseIsCorrect(event, session.threats, session.scoreRule)).length,
   }
 }
 
@@ -479,7 +629,7 @@ function withChangedEvent(events: SessionEvent[], original: SessionEvent, replac
 
 export function getWhatIfOpportunity(session: TrainingSession): WhatIfOpportunity | null {
   const candidates: WhatIfOpportunity[] = []
-  const scoreRule = session.scoreRule === 'event-performance-v1' || session.scoreRule === 'event-performance-v3'
+  const scoreRule = session.scoreRule === 'event-performance-v1' || session.scoreRule === 'event-performance-v3' || session.scoreRule === 'event-performance-v4'
     ? session.scoreRule
     : 'event-performance-v2'
   const baselineScore = calculateSessionScore(session.threats, session.events, session.difficulty, scoreRule).awarded
@@ -543,10 +693,10 @@ export function getWhatIfOpportunity(session: TrainingSession): WhatIfOpportunit
 
     if (event.eventType === 'DRONE_DETECTED') {
       const threat = session.threats.find((item) => item.id === event.threatId)
-      const improvedElapsedMs = Math.max(
-        threat?.spawnTimeMs ?? 0,
-        Math.floor(detectionWindows[session.difficulty] / 2),
-      )
+      const detectableAtMs = event.detectableAtMs ?? threat?.spawnTimeMs ?? 0
+      const improvedElapsedMs = scoreRule === 'event-performance-v4'
+        ? detectableAtMs + Math.floor(detectionWindows[session.difficulty] / 2)
+        : Math.max(detectableAtMs, Math.floor(detectionWindows[session.difficulty] / 2))
       if (event.elapsedMs <= improvedElapsedMs) continue
       consider(
         event,
@@ -562,10 +712,9 @@ export function getWhatIfOpportunity(session: TrainingSession): WhatIfOpportunit
   for (const event of missedEvents) {
     const threat = session.threats.find((item) => item.id === event.threatId)
     if (!threat || threat.spawnTimeMs >= session.missionDurationMs) continue
-    const improvedElapsedMs = Math.max(
-      threat.spawnTimeMs,
-      Math.floor(detectionWindows[session.difficulty] / 2),
-    )
+    const improvedElapsedMs = scoreRule === 'event-performance-v4'
+      ? threat.spawnTimeMs + Math.floor(detectionWindows[session.difficulty] / 2)
+      : Math.max(threat.spawnTimeMs, Math.floor(detectionWindows[session.difficulty] / 2))
     if (improvedElapsedMs >= session.missionDurationMs) continue
     consider(
       event,
@@ -583,14 +732,14 @@ export function getWhatIfOpportunity(session: TrainingSession): WhatIfOpportunit
   }
 
   for (const event of session.events) {
-    if (event.eventType !== 'RESPONSE_SELECTED' || responseIsCorrect(event, session.threats)) continue
+    if (event.eventType !== 'RESPONSE_SELECTED' || responseIsCorrect(event, session.threats, scoreRule)) continue
     const threat = session.threats.find((item) => item.id === event.threatId)
     if (!threat) continue
-    const expectedAction = threat.expectedClassification === 'Hostile'
-      ? 'Escalate alert'
-      : threat.expectedClassification === 'Unknown'
-        ? 'Track priority threat'
-        : 'Continue monitoring'
+    const expectedAction = scoreRule === 'event-performance-v4'
+      ? expectedResponseForPriority(threat.priority)
+      : threat.expectedClassification === 'Hostile'
+        ? 'Escalate alert'
+        : threat.expectedClassification === 'Unknown' ? 'Track priority threat' : 'Continue monitoring'
     consider(
       event,
       { ...event, action: expectedAction, result: 'correct' },
@@ -615,7 +764,7 @@ function parseSession(value: string | null): TrainingSession | null {
   if (!parsed || typeof parsed !== 'object') return null
   const candidate = parsed as Partial<TrainingSession>
   if (
-    (candidate.version !== 3 && candidate.version !== 4) ||
+    (candidate.version !== 3 && candidate.version !== 4 && candidate.version !== 5) ||
     typeof candidate.id !== 'string' ||
     typeof candidate.scenario !== 'string' ||
     typeof candidate.score !== 'number' ||

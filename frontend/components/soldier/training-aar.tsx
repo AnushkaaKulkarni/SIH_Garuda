@@ -88,6 +88,7 @@ function replayContacts(session: TrainingSession, events: SessionEvent[], playba
     return {
       id: threat.id,
       type: threat.type,
+      ...(threat.attackGroupId ? { attackGroupId: threat.attackGroupId } : {}),
       detected,
       eventCue,
       cueHypothetical: Boolean(cueEvent?.modified),
@@ -392,6 +393,7 @@ export function AARExperience({ session: sessionId }: { session: string }) {
                 <p className="panel-label">SESSION CONTEXT</p>
                 <div className={styles.contextGrid}>
                   <span>Scenario<b>{scenario?.name ?? session.scenario}</b></span>
+                  <span>Attack mode<b>{!session.attackMode ? 'Not recorded (legacy session)' : session.attackMode === 'single' ? 'Single Threat' : session.attackMode === 'swarm' ? 'Swarm Attack' : session.attackMode === 'mixed' ? 'Mixed Scenario' : 'Multiple Threats'}</b></span>
                   <span>Terrain<b>{hasRecordedSession ? session.environment.terrain : 'N/A'}</b></span>
                   <span>Time / visibility<b>{hasRecordedSession ? `${session.environment.time} / ${session.environment.visibility}` : 'N/A'}</b></span>
                   <span>Mission time<b>{hasRecordedSession ? formatDuration(session.missionDurationMs) : 'N/A'}</b></span>
@@ -404,7 +406,7 @@ export function AARExperience({ session: sessionId }: { session: string }) {
 
             <section className={styles.metricsGrid} aria-label="Mission performance metrics">
               <StatCard label="Detection accuracy" value={hasRecordedSession ? metricValue(detectionPercent) : 'N/A'} />
-              <StatCard label="Average detection time" value={hasRecordedSession && metrics.averageDetectionMs !== null ? formatDuration(metrics.averageDetectionMs) : 'N/A'} />
+              <StatCard label={session.scoreRule === 'event-performance-v4' ? 'Average time after arrival' : 'Average detection time'} value={hasRecordedSession && metrics.averageDetectionMs !== null ? formatDuration(metrics.averageDetectionMs) : 'N/A'} />
               <StatCard label="Classification accuracy" value={hasRecordedSession ? metricValue(metrics.classificationAccuracy) : 'N/A'} />
               <StatCard label="Priority accuracy" value={hasRecordedSession ? metricValue(metrics.priorityAccuracy) : 'N/A'} />
               <StatCard label="Response accuracy" value={metricValue(metrics.responseAccuracy)} />
