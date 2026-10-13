@@ -1,7 +1,36 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
+import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
+import { setLatestPhoneFrame, type PhoneSceneSnapshot } from '@/lib/phone-control'
 import styles from './phone-test.module.css'
+
+const TrainingSimulationScene = dynamic(
+  () => import('@/components/soldier/training-simulation-scene').then((module) => module.TrainingSimulationScene),
+  { ssr: false, loading: () => <p className={styles.sceneLoading}>Loading live GARUDA scene…</p> },
+)
+
+class PhoneSceneErrorBoundary extends Component<{
+  children: ReactNode
+  onError: () => void
+}, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[phone-viewer] scene renderer failed', error)
+    this.props.onError()
+  }
+
+  render() {
+    return this.state.failed
+      ? <p className={styles.sceneLoading}>GARUDA scene renderer error</p>
+      : this.props.children
+  }
+}
 
 type SensorValues = {
   alpha: number | null
@@ -52,16 +81,32 @@ async function requestPermissionIfNeeded(
   return (await requestPermission.call(eventType)) === 'granted'
 }
 
+function unlockScreenOrientation() {
+  try {
+    const orientationManager = screen.orientation as ScreenOrientation & { unlock?: () => void }
+    orientationManager.unlock?.()
+  } catch {
+    // Browser support varies; manual rotation remains available.
+  }
+}
+
 export default function PhoneTestPage() {
   const [isMobile, setIsMobile] = useState<boolean | null>(null)
   const [isListening, setIsListening] = useState(false)
   const [isRequesting, setIsRequesting] = useState(false)
   const [isSecureContext, setIsSecureContext] = useState<boolean | null>(null)
   const [buttonTapReceived, setButtonTapReceived] = useState(false)
+  const [pairingCode, setPairingCode] = useState('')
+  const [controllerId, setControllerId] = useState('')
+  const [controlStatus, setControlStatus] = useState('NOT CONNECTED')
+  const [landscapeMessage, setLandscapeMessage] = useState('Rotate the phone manually to landscape before starting.')
   const [orientationReceived, setOrientationReceived] = useState(false)
   const [motionReceived, setMotionReceived] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState('WAITING FOR SENSOR DATA')
   const [message, setMessage] = useState('')
+  const [sceneSnapshot, setSceneSnapshot] = useState<PhoneSceneSnapshot | null>(null)
+  const [sceneStatus, setSceneStatus] = useState('WAITING FOR LIVE SCENE')
+  const [phoneRecenterKey, setPhoneRecenterKey] = useState(0)
   const [availability, setAvailability] = useState<SensorAvailability>({
     gyroscope: false,
     accelerometer: false,
@@ -83,6 +128,21 @@ export default function PhoneTestPage() {
     y: null,
     z: null,
   })
+  const orientationRef = useRef<SensorValues>({ alpha: null, beta: null, gamma: null })
+  const controllerRunning = useRef(false)
+  const lastSceneLogAt = useRef(0)
+  const lastConnectionLogAt = useRef(0)
+  const sceneRenderFailed = useRef(false)
+
+  useEffect(() => {
+    const codeFromUrl = new URLSearchParams(window.location.search).get('pair')
+    if (codeFromUrl) {
+      const normalizedCode = codeFromUrl.toUpperCase().replace(/[^A-Z2-9]/g, '')
+      setPairingCode(normalizedCode)
+      const savedControllerId = sessionStorage.getItem(`garuda-phone-controller:${normalizedCode}`)
+      if (savedControllerId) setControllerId(savedControllerId)
+    }
+  }, [])
 
   useEffect(() => {
     setIsMobile(/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent))
@@ -97,6 +157,16 @@ export default function PhoneTestPage() {
         alpha: event.alpha,
         beta: event.beta,
         gamma: event.gamma,
+      }
+      orientationRef.current = values
+      if (isListening && [values.alpha, values.beta, values.gamma].every(isNumber)) {
+        setLatestPhoneFrame({
+          alpha: values.alpha!,
+          beta: values.beta!,
+          gamma: values.gamma!,
+          screenAngle: typeof screen.orientation?.angle === 'number' ? screen.orientation.angle : 0,
+          updatedAt: Date.now(),
+        })
       }
       setOrientation(values)
       if (hasValue([values.alpha, values.beta, values.gamma])) {
@@ -159,6 +229,128 @@ export default function PhoneTestPage() {
     }
   }, [isListening])
 
+  useEffect(() => {
+    if (!isListening || !pairingCode) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    let busy = false
+    const pollScene = async () => {
+      if (stopped || busy) return
+      busy = true
+      try {
+        const response = await fetch(`/api/phone-control?code=${encodeURIComponent(pairingCode)}`, { cache: 'no-store' })
+        const data = await response.json() as {
+          scene?: PhoneSceneSnapshot | null
+          sceneAgeMs?: number | null
+          sceneElapsedMs?: number | null
+          error?: string
+        }
+        if (!response.ok) throw new Error(data.error || 'The laptop scene connection was interrupted.')
+        if (!stopped) {
+          const scene = data.scene && (data.sceneAgeMs ?? Infinity) < 4000 ? data.scene : null
+          setSceneSnapshot(scene && Number.isFinite(data.sceneElapsedMs)
+            ? { ...scene, missionStartedAt: Date.now() - Math.max(0, data.sceneElapsedMs!) }
+            : scene)
+          if (!sceneRenderFailed.current) setSceneStatus(scene ? 'LIVE · SYNCED' : 'WAITING FOR LAPTOP SCENE')
+          if (scene && Date.now() - lastSceneLogAt.current > 10000) {
+            console.info('[phone-viewer] live state received', {
+              scenarioId: scene.scenarioId,
+              contactCount: scene.contacts.length,
+            })
+            lastSceneLogAt.current = Date.now()
+          }
+        }
+      } catch (reason) {
+        if (!stopped) {
+          setSceneSnapshot(null)
+          setSceneStatus('LAPTOP CONNECTION LOST')
+          setMessage(reason instanceof Error ? reason.message : 'Waiting for the live laptop scene.')
+          if (Date.now() - lastConnectionLogAt.current > 10000) {
+            console.warn('[phone-viewer] laptop scene connection failed')
+            lastConnectionLogAt.current = Date.now()
+          }
+        }
+      } finally {
+        busy = false
+        if (!stopped) timer = setTimeout(pollScene, 500)
+      }
+    }
+    void pollScene()
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  }, [isListening, pairingCode])
+
+  useEffect(() => {
+    if (!isListening || !controllerId || !pairingCode) return
+    let stopped = false
+    let busy = false
+    let timer: ReturnType<typeof setTimeout>
+    const abortController = new AbortController()
+
+    const sendLatest = async () => {
+      if (stopped || !controllerRunning.current || busy) return
+      const current = orientationRef.current
+      if (!hasValue([current.alpha, current.beta, current.gamma])) {
+        timer = setTimeout(sendLatest, 34)
+        return
+      }
+      busy = true
+      try {
+        const signedDegrees = (value: number) => ((value + 180) % 360 + 360) % 360 - 180
+        const response = await fetch('/api/phone-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: abortController.signal,
+          body: JSON.stringify({
+            action: 'update',
+            code: pairingCode,
+            controllerId,
+            orientation: {
+              alpha: ((current.alpha! % 360) + 360) % 360,
+              beta: signedDegrees(current.beta!),
+              gamma: signedDegrees(current.gamma!),
+              screenAngle: signedDegrees(typeof screen.orientation?.angle === 'number' ? screen.orientation.angle : 0),
+            },
+          }),
+        })
+        if (!response.ok) {
+          const data = await response.json() as { error?: string }
+          throw new Error(data.error || 'Phone link disconnected.')
+        }
+      } catch (error) {
+        if (!stopped && !abortController.signal.aborted) {
+          unlockScreenOrientation()
+          if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+          setLatestPhoneFrame(null)
+          setSceneSnapshot(null)
+          setControlStatus('LINK INTERRUPTED')
+          setMessage(error instanceof Error ? error.message : 'Phone link interrupted. Reconnect with the laptop code.')
+          setConnectionStatus('PHONE LINK ERROR')
+          controllerRunning.current = false
+          try {
+            const orientationManager = screen.orientation as ScreenOrientation & { unlock?: () => void }
+            orientationManager.unlock?.()
+          } catch {
+            // Browser support varies; the data link is still stopped.
+          }
+          setIsListening(false)
+        }
+      } finally {
+        busy = false
+        if (!stopped && controllerRunning.current) timer = setTimeout(sendLatest, 34)
+      }
+    }
+
+    void sendLatest()
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+      abortController.abort()
+    }
+  }, [controllerId, isListening, pairingCode])
+
   const enableSensors = async () => {
     if (isListening || isRequesting) return
 
@@ -166,13 +358,15 @@ export default function PhoneTestPage() {
     setConnectionStatus('BUTTON TAP RECEIVED...')
     setMessage('')
     setIsRequesting(true)
+    setControlStatus('CHECKING PHONE SENSORS')
 
     const hasOrientation = typeof window.DeviceOrientationEvent !== 'undefined'
     const hasMotion = typeof window.DeviceMotionEvent !== 'undefined'
 
-    if (!hasOrientation && !hasMotion) {
+    if (!hasOrientation) {
       setConnectionStatus('PHONE SENSORS NOT SUPPORTED')
-      setMessage('This browser does not expose DeviceOrientationEvent or DeviceMotionEvent.')
+      setControlStatus('SENSOR API UNSUPPORTED')
+      setMessage('This browser does not expose DeviceOrientationEvent, which is required for camera control.')
       setIsRequesting(false)
       return
     }
@@ -182,40 +376,87 @@ export default function PhoneTestPage() {
       setMessage(
         'This page is using HTTP and window.isSecureContext is false. The browser may block motion/orientation sensors here. Open this page through a trusted HTTPS development URL; sensor access was not requested.',
       )
+      setControlStatus('SECURE HTTPS REQUIRED')
       setIsRequesting(false)
       return
     }
 
-    if (!hasOrientation || !hasMotion) {
-      setMessage(
-        `Partial sensor API support: DeviceOrientationEvent is ${hasOrientation ? 'available' : 'unavailable'}; DeviceMotionEvent is ${hasMotion ? 'available' : 'unavailable'}.`,
-      )
+    const normalizedCode = pairingCode.toUpperCase().replace(/[^A-Z2-9]/g, '')
+    if (normalizedCode.length !== 12) {
+      setControlStatus('PAIRING CODE REQUIRED')
+      setConnectionStatus('WAITING FOR LAPTOP PAIRING')
+      setMessage('Enter the 12-character pairing code shown in the laptop scene before starting phone control.')
+      setIsRequesting(false)
+      return
     }
 
     try {
-      const permissions = await Promise.all([
-        hasOrientation
-          ? requestPermissionIfNeeded(
-              window.DeviceOrientationEvent as unknown as PermissionAwareConstructor,
-            )
-          : Promise.resolve(true),
-        hasMotion
-          ? requestPermissionIfNeeded(
-              window.DeviceMotionEvent as unknown as PermissionAwareConstructor,
-            )
-          : Promise.resolve(true),
-      ])
+      const orientationPermission = requestPermissionIfNeeded(
+        window.DeviceOrientationEvent as unknown as PermissionAwareConstructor,
+      )
+      const motionPermission = hasMotion
+        ? requestPermissionIfNeeded(window.DeviceMotionEvent as unknown as PermissionAwareConstructor).catch(() => false)
+        : Promise.resolve(false)
+      const orientationManager = screen.orientation as ScreenOrientation & {
+        lock?: (value: string) => Promise<void>
+      }
+      // Invoke in the tap handler while browser user activation is available.
+      const fullscreenRequest = document.documentElement.requestFullscreen
+        ? document.documentElement.requestFullscreen().then(() => true).catch(() => false)
+        : Promise.resolve(false)
+      const landscapeLock = (async () => {
+        await fullscreenRequest
+        return orientationManager.lock
+          ? orientationManager.lock('landscape').then(() => true).catch(() => false)
+          : false
+      })()
 
-      if (permissions.some((granted) => !granted)) {
+      if (!(await orientationPermission)) {
+        unlockScreenOrientation()
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
         setConnectionStatus('SENSOR ACCESS DENIED')
-        setMessage('Permission was not granted. Check this site’s motion/orientation permissions in browser settings, then reload and try again.')
+        setControlStatus('SENSOR PERMISSION DENIED')
+        setMessage('Orientation permission was not granted. Check this site’s sensor permissions in browser settings, then retry.')
         return
       }
 
+      if (hasMotion && !(await motionPermission)) {
+        setMessage('Motion permission was denied or unavailable. Orientation control can continue; motion diagnostics may remain unavailable.')
+      }
+
+      const storageKey = `garuda-phone-controller:${normalizedCode}`
+      const nextControllerId = controllerId || sessionStorage.getItem(storageKey) || crypto.randomUUID()
+      const response = await fetch('/api/phone-control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'connect', code: normalizedCode, controllerId: nextControllerId }),
+      })
+      const connection = await response.json() as { error?: string }
+      if (!response.ok) throw new Error(connection.error || 'Could not connect to the laptop pairing session.')
+
+      const [locked] = await Promise.all([landscapeLock, fullscreenRequest])
+      setLandscapeMessage(locked
+        ? 'Landscape orientation locked.'
+        : 'Rotate your phone horizontally to landscape.')
+
+      setLatestPhoneFrame(null)
+      setSceneSnapshot(null)
+      setSceneStatus('WAITING FOR LIVE SCENE')
+      sceneRenderFailed.current = false
+      setPhoneRecenterKey(0)
+      setPairingCode(normalizedCode)
+      setControllerId(nextControllerId)
+      sessionStorage.setItem(storageKey, nextControllerId)
+      controllerRunning.current = true
+      setControlStatus('CONNECTED — SENDING ORIENTATION')
       setConnectionStatus('WAITING FOR SENSOR DATA')
       setIsListening(true)
+      console.info('[phone-viewer] paired; requesting live scene')
     } catch (error) {
+      unlockScreenOrientation()
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
       setConnectionStatus('SENSOR ACCESS ERROR')
+      setControlStatus('CONNECTION FAILED')
       const detail = error instanceof Error ? error.message : 'The browser rejected sensor access.'
       setMessage(
         !window.isSecureContext
@@ -227,9 +468,65 @@ export default function PhoneTestPage() {
     }
   }
 
+  const stopPhoneControl = async () => {
+    controllerRunning.current = false
+    setIsListening(false)
+    setSceneSnapshot(null)
+    setLatestPhoneFrame(null)
+    setControlStatus('DISCONNECTED')
+    setConnectionStatus('PHONE CONTROL STOPPED')
+    unlockScreenOrientation()
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+    if (controllerId && pairingCode) {
+      try {
+        await fetch('/api/phone-control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'disconnect', code: pairingCode, controllerId }),
+        })
+      } catch {
+        setMessage('Local sensors stopped. The laptop will mark this phone disconnected when its link lease expires.')
+      }
+    }
+  }
+
   const status = isMobile === false
     ? 'DESKTOP DEVICE DETECTED'
     : connectionStatus
+
+  if (isListening) {
+    return (
+      <main className={styles.mobileViewer}>
+        {sceneSnapshot ? (
+          <div className={styles.mobileScene}>
+            <PhoneSceneErrorBoundary onError={() => {
+              sceneRenderFailed.current = true
+              setSceneStatus('SCENE RENDER ERROR')
+            }}>
+              <TrainingSimulationScene
+                contacts={sceneSnapshot.contacts}
+                terrain={sceneSnapshot.terrain}
+                time={sceneSnapshot.time}
+                visibility={sceneSnapshot.visibility}
+                himalayanVisuals={sceneSnapshot.himalayanVisuals}
+                missionStartedAt={sceneSnapshot.missionStartedAt}
+                phoneControlEnabled
+                phoneRecenterKey={phoneRecenterKey}
+                mobileOptimized
+                mobileStereo
+              />
+            </PhoneSceneErrorBoundary>
+          </div>
+        ) : (
+          <p className={styles.sceneLoading}>Waiting for the laptop’s live GARUDA scene…</p>
+        )}
+        <p className={styles.viewerStatus} role="status">{sceneStatus}</p>
+        {landscapeMessage.startsWith('Rotate') && <p className={styles.viewerNotice}>{landscapeMessage}</p>}
+        {sceneSnapshot && <button className={styles.viewerRecenter} type="button" onClick={() => setPhoneRecenterKey((key) => key + 1)}>Recenter</button>}
+        <button className={styles.viewerExit} type="button" onClick={stopPhoneControl}>Disconnect</button>
+      </main>
+    )
+  }
 
   return (
     <main className={styles.page}>
@@ -268,6 +565,8 @@ export default function PhoneTestPage() {
           {isMobile === false && (
             <p className={styles.notice}>This diagnostic is intended to be tested on a mobile device.</p>
           )}
+          <p className={styles.notice}>PHONE LINK: {controlStatus}</p>
+          <p className={styles.notice}>{landscapeMessage}</p>
           {status === 'PHONE SENSORS NOT SUPPORTED' && (
             <p className={styles.error}>{message || 'This browser does not support the required sensor APIs.'}</p>
           )}
@@ -280,6 +579,22 @@ export default function PhoneTestPage() {
               Current address is not a secure context (HTTPS). Sensor access may be blocked by the browser. This page will not bypass that restriction.
             </p>
           )}
+        </section>
+
+        <section className={styles.controllerPanel}>
+          <h2>CONNECT TO GARUDA</h2>
+          <label className={styles.pairingLabel} htmlFor="pairing-code">Laptop pairing code</label>
+          <input
+            id="pairing-code"
+            className={styles.pairingInput}
+            value={pairingCode}
+            onChange={(event) => setPairingCode(event.target.value.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 12))}
+            placeholder="12-CHARACTER CODE"
+            autoCapitalize="characters"
+            autoComplete="off"
+            disabled={isListening || isRequesting}
+          />
+          <p>On the laptop, open the live training scene and choose <strong>Pair phone</strong>. Enter its code here.</p>
         </section>
 
         <section className={styles.panel}>
@@ -327,21 +642,21 @@ export default function PhoneTestPage() {
         <button
           className={`button ${styles.enableButton}`}
           type="button"
-          onClick={enableSensors}
-          disabled={isListening || isRequesting}
+          onClick={isListening ? stopPhoneControl : enableSensors}
+          disabled={isRequesting}
         >
           {isListening
-            ? 'LISTENING — WAITING FOR DATA'
+            ? 'STOP PHONE CONTROL'
             : isRequesting
               ? 'REQUESTING SENSOR ACCESS…'
-              : 'ENABLE PHONE SENSORS'}
+              : 'START PHONE CONTROL'}
         </button>
 
         <section className={styles.instructions}>
           <h2>TEST INSTRUCTIONS</h2>
           <ol>
             <li>Open this page on your Android phone.</li>
-            <li>Press ENABLE PHONE SENSORS.</li>
+            <li>Enter the laptop pairing code, then press START PHONE CONTROL.</li>
             <li>Allow motion/orientation permission if prompted.</li>
             <li>Hold the phone normally and rotate left/right.</li>
             <li>Tilt the phone up/down and clockwise/counter-clockwise.</li>
@@ -353,7 +668,7 @@ export default function PhoneTestPage() {
 
         <footer className={styles.footer}>
           PHONE → BROWSER → SENSOR VALUES
-          <span>No streaming or simulation integration</span>
+          <span>Orientation is sent only while phone control runs on this phone</span>
         </footer>
       </div>
     </main>

@@ -5,6 +5,9 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { XRStore } from '@react-three/xr'
 import * as THREE from 'three'
+import { StereoEffect } from 'three/addons/effects/StereoEffect.js'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
+import { getLatestPhoneFrame, type PhoneOrientationFrame } from '@/lib/phone-control'
 
 const TrainingXRLayer = lazy(() => import('./training-xr-layer').then((module) => ({ default: module.TrainingXRLayer })))
 
@@ -41,7 +44,13 @@ type TrainingSimulationSceneProps = {
   playbackSeconds?: number
   missionStartedAt?: number
   onThreatDetected?: (threatId: string) => void
+  phoneControlEnabled?: boolean
+  phoneRecenterKey?: number
+  mobileOptimized?: boolean
+  mobileStereo?: boolean
 }
+
+type OrbitControlHandle = OrbitControlsImpl
 
 function SceneLabel({
   text,
@@ -753,9 +762,39 @@ function DunePatch({
 
 type MovementIntent = 'MOVE_FORWARD' | 'MOVE_BACKWARD' | 'MOVE_LEFT' | 'MOVE_RIGHT' | 'MOVE_UP' | 'MOVE_DOWN' | 'MOVE_STOP'
 
-function CameraRig() {
+function sensorQuaternion(frame: PhoneOrientationFrame) {
+  const radians = Math.PI / 180
+  const deviceEuler = new THREE.Euler(
+    frame.beta * radians,
+    frame.alpha * radians,
+    -frame.gamma * radians,
+    'YXZ',
+  )
+  const cameraCorrection = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+  const screenCorrection = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 0, 1),
+    -frame.screenAngle * radians,
+  )
+  return new THREE.Quaternion().setFromEuler(deviceEuler).multiply(cameraCorrection).multiply(screenCorrection)
+}
+
+function CameraRig({
+  phoneControlEnabled,
+  phoneRecenterKey,
+  orbitControlsRef,
+}: {
+  phoneControlEnabled: boolean
+  phoneRecenterKey: number
+  orbitControlsRef: React.RefObject<OrbitControlHandle | null>
+}) {
   const { camera } = useThree()
   const perspectiveCamera = camera as THREE.PerspectiveCamera
+  const phoneCalibration = useRef<{
+    enabled: boolean
+    recenterKey: number
+    neutral: THREE.Quaternion | null
+    cameraBase: THREE.Quaternion | null
+  }>({ enabled: false, recenterKey: -1, neutral: null, cameraBase: null })
   const keys = useRef({ forward: false, backward: false, left: false, right: false })
   const voiceMovement = useRef({ forward: false, backward: false, left: false, right: false, up: false, down: false })
   const defaultFov = useRef(perspectiveCamera.fov)
@@ -841,7 +880,44 @@ function CameraRig() {
     }
   }, [])
 
+  useEffect(() => {
+    const calibration = phoneCalibration.current
+    if (phoneControlEnabled) {
+      const frame = getLatestPhoneFrame()
+      if (frame && Date.now() - frame.updatedAt < 1500 &&
+        (!calibration.enabled || calibration.recenterKey !== phoneRecenterKey)) {
+        if (!calibration.cameraBase) calibration.cameraBase = perspectiveCamera.quaternion.clone()
+        calibration.neutral = sensorQuaternion(frame)
+        calibration.recenterKey = phoneRecenterKey
+      }
+      calibration.enabled = true
+      return
+    }
+
+    if (calibration.enabled && orbitControlsRef.current) {
+      const direction = perspectiveCamera.getWorldDirection(new THREE.Vector3())
+      const distance = perspectiveCamera.position.distanceTo(orbitControlsRef.current.target)
+      orbitControlsRef.current.target.copy(perspectiveCamera.position).addScaledVector(direction, distance)
+      orbitControlsRef.current.update()
+    }
+    calibration.enabled = false
+    calibration.neutral = null
+    calibration.cameraBase = null
+  }, [phoneControlEnabled, phoneRecenterKey, perspectiveCamera, orbitControlsRef])
+
   useFrame((_, delta) => {
+    const calibration = phoneCalibration.current
+    const phoneFrame = phoneControlEnabled ? getLatestPhoneFrame() : null
+    if (phoneControlEnabled && phoneFrame && Date.now() - phoneFrame.updatedAt < 1500) {
+      if (!calibration.neutral || !calibration.cameraBase) {
+        calibration.neutral = sensorQuaternion(phoneFrame)
+        calibration.cameraBase ??= perspectiveCamera.quaternion.clone()
+      }
+      const relative = sensorQuaternion(phoneFrame).multiply(calibration.neutral.clone().invert())
+      const target = relative.multiply(calibration.cameraBase)
+      perspectiveCamera.quaternion.slerp(target, 1 - Math.exp(-delta / 0.11))
+    }
+
     const moveVector = new THREE.Vector3()
     const forward = new THREE.Vector3()
     camera.getWorldDirection(forward)
@@ -880,6 +956,53 @@ function CameraRig() {
     perspectiveCamera.updateProjectionMatrix()
   })
 
+  return null
+}
+
+function MobileCanvasResize() {
+  const { camera, gl } = useThree()
+
+  useEffect(() => {
+    const canvas = gl.domElement
+    const container = canvas.parentElement
+    if (!container) return
+
+    const resize = () => {
+      const { width, height } = container.getBoundingClientRect()
+      if (width <= 0 || height <= 0) return
+      gl.setSize(width, height, false)
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = width / height
+        camera.updateProjectionMatrix()
+      }
+    }
+
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null
+    observer?.observe(container)
+    window.addEventListener('resize', resize)
+    window.addEventListener('orientationchange', resize)
+    resize()
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', resize)
+      window.removeEventListener('orientationchange', resize)
+    }
+  }, [camera, gl])
+
+  return null
+}
+
+function MobileStereoRenderer() {
+  const { camera, gl, scene, size } = useThree()
+  const stereo = useRef<StereoEffect | null>(null)
+  useEffect(() => {
+    const effect = new StereoEffect(gl)
+    effect.setEyeSeparation(0.064)
+    stereo.current = effect
+    return () => { stereo.current = null }
+  }, [gl])
+  useEffect(() => { stereo.current?.setSize(size.width, size.height) }, [size.width, size.height])
+  useFrame(() => { stereo.current?.render(scene, camera) }, 1)
   return null
 }
 
@@ -1347,12 +1470,23 @@ export function TrainingSimulationScene({
   playbackSeconds,
   missionStartedAt,
   onThreatDetected,
+  phoneControlEnabled = false,
+  phoneRecenterKey = 0,
+  mobileOptimized = false,
+  mobileStereo = false,
 }: TrainingSimulationSceneProps) {
+  const orbitControlsRef = useRef<OrbitControlHandle | null>(null)
   const night = time.toLowerCase() === 'night'
   const far = /fog/i.test(visibility) ? 72 : /blackout/i.test(visibility) ? 88 : /dust|snow/i.test(visibility) ? 94 : /degraded|haze|reduced|low light/i.test(visibility) ? 108 : 130
   const sceneContent = (
     <>
-      <CameraRig />
+      {mobileOptimized && <MobileCanvasResize />}
+      {mobileStereo && <MobileStereoRenderer />}
+      <CameraRig
+        phoneControlEnabled={phoneControlEnabled && !xrActive}
+        phoneRecenterKey={phoneRecenterKey}
+        orbitControlsRef={orbitControlsRef}
+      />
       <Terrain terrain={terrain} time={time} visibility={visibility} himalayanVisuals={himalayanVisuals} />
       {himalayanVisuals && <Snowfall />}
       <fog
@@ -1375,8 +1509,9 @@ export function TrainingSimulationScene({
         </group>
       ))}
       <OrbitControls
+        ref={orbitControlsRef}
         makeDefault
-        enabled={!xrActive}
+        enabled={!xrActive && !phoneControlEnabled}
         target={[0, 3, -8]}
         enableDamping
         dampingFactor={0.08}
@@ -1391,7 +1526,7 @@ export function TrainingSimulationScene({
   return (
     <Canvas
       camera={{ position: [25, 25, 37], fov: 46, near: 0.1, far: 170 }}
-      dpr={[1, 1.5]}
+      dpr={mobileOptimized ? [1, 1.1] : [1, 1.5]}
       gl={{ antialias: true, powerPreference: 'low-power' }}
       style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
     >

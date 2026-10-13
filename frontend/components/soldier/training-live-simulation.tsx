@@ -9,6 +9,8 @@ import { playSimulationTone } from '@/lib/simulation-audio'
 import { scenarios } from '@/lib/types'
 import { parseVRCommand, type ParsedVRCommand } from '@/lib/vr-commands'
 import { TrainingVRControls } from './training-vr-controls'
+import { PhoneControlPanel } from './phone-control-panel'
+import type { PhoneSceneSnapshot } from '@/lib/phone-control'
 import type { XRStore } from '@react-three/xr'
 import {
   calculateSessionScore,
@@ -65,7 +67,7 @@ function UavReference({ type }: { type: string }) {
 export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: string; mode?: 'desktop' | 'vr' }) {
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0]
   const isHimalayan = scenario.id === 'himalayan-shield'
-  const vrMode = mode === 'vr' && isHimalayan
+  const vrMode = mode === 'vr'
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>(scenario.difficulty)
   const [run, setRun] = useState({ id: 'starting', seed: 0 })
   const threats = useMemo<SessionThreat[]>(() => {
@@ -191,6 +193,9 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
   const [webXrSupported, setWebXrSupported] = useState<boolean | null>(null)
   const [xrStore, setXRStore] = useState<XRStore | null>(null)
   const [immersiveActive, setImmersiveActive] = useState(false)
+  const [phoneControlEnabled, setPhoneControlEnabled] = useState(false)
+  const [phoneRecenterKey, setPhoneRecenterKey] = useState(0)
+  const [phonePairingCode, setPhonePairingCode] = useState<string | null>(null)
   const [xrError, setXrError] = useState('')
   const startedAt = useRef(Date.now())
   const currentScenarioId = useRef(scenario.id)
@@ -293,6 +298,12 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
       setEvents(eventLog.current)
     }
   }, [missionStarted, run.id, seconds, submitted, threats])
+
+  useEffect(() => {
+    if (vrMode) return
+    setPhoneControlEnabled(false)
+    setPhoneRecenterKey(0)
+  }, [vrMode])
 
   useEffect(() => {
     if (soundOn) playSimulationTone('ambient', 0.04)
@@ -681,6 +692,65 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
     }
   }).filter((contact) => spawnedSet.has(contact.id))
 
+  const phoneContacts = contacts.map((contact) => {
+    const cueEvent = [...events].reverse().find((event) =>
+      event.threatId === contact.id && [
+        'DRONE_DETECTED', 'DRONE_CLASSIFIED', 'THREAT_PRIORITIZED',
+        'RESPONSE_SELECTED', 'DRONE_MISSED', 'DRONE_NEUTRALIZED',
+      ].includes(event.eventType),
+    )
+    const eventCue = !cueEvent ? undefined
+      : cueEvent.eventType === 'DRONE_CLASSIFIED' ? `CLASSIFIED · ${String(cueEvent.actualClassification ?? 'UNKNOWN').toUpperCase()}`
+        : cueEvent.eventType === 'THREAT_PRIORITIZED' ? `PRIORITY · ${String(cueEvent.actualPriority ?? 'SET').toUpperCase()}`
+          : cueEvent.eventType === 'RESPONSE_SELECTED' ? `RESPONSE · ${String(cueEvent.action ?? 'RECORDED').toUpperCase()}`
+            : cueEvent.eventType === 'DRONE_MISSED' ? 'MISSED CONTACT'
+              : cueEvent.eventType === 'DRONE_NEUTRALIZED' ? 'NEUTRALIZED' : 'DETECTED'
+    return { ...contact, ...(eventCue ? { eventCue } : {}) }
+  })
+
+  const phoneSceneSnapshot = useRef<PhoneSceneSnapshot | null>(null)
+  phoneSceneSnapshot.current = {
+    scenarioId: scenario.id,
+    terrain: scenario.terrain,
+    time: scenario.time,
+    visibility: scenario.visibility,
+    himalayanVisuals: isHimalayan,
+    contacts: phoneContacts,
+    missionStartedAt: startedAt.current,
+    publishedAt: Date.now(),
+  }
+
+  useEffect(() => {
+    if (!vrMode || !phonePairingCode || !missionStarted || run.id === 'starting') return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    let busy = false
+    const publish = async () => {
+      if (stopped || busy) return
+      busy = true
+      try {
+        const snapshot = phoneSceneSnapshot.current
+        if (snapshot) {
+          await fetch('/api/phone-control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'publish-scene', code: phonePairingCode, snapshot }),
+          })
+        }
+      } catch {
+        // The phone viewer is best effort; the laptop simulation remains authoritative.
+      } finally {
+        busy = false
+        if (!stopped) timer = setTimeout(publish, 500)
+      }
+    }
+    void publish()
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  }, [missionStarted, phonePairingCode, run.id, vrMode])
+
   const howToContent = (
     <main className={styles.howToScreen} role="dialog" aria-modal="true" aria-labelledby="how-to-title">
       <div className={styles.howToInner}>
@@ -837,12 +907,16 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
               {soundOn ? 'SOUND ON' : 'SOUND OFF'}
             </button>
             <span className="terrain-chip">{scenario.terrain} · {scenario.time}</span>
-            <button className="table-action" onClick={toggleFullscreen}>
-              <Maximize2 size={14} /> {fullscreen ? 'Exit immersive' : 'Immersive'}
+            <button className="table-action" onClick={toggleFullscreen} aria-pressed={fullscreen}>
+              <Maximize2 size={14} /> {fullscreen ? 'Exit 3D Viewer' : 'Expand 3D Viewer'}
             </button>
           </div>
         }
       />
+      {vrMode && <PhoneControlPanel onPairingCodeChange={setPhonePairingCode} onControlChange={(enabled, recenterKey) => {
+        setPhoneControlEnabled(enabled)
+        setPhoneRecenterKey(recenterKey)
+      }} />}
       <div className="simulation-layout">
         <Panel className="threat-list">
           <p className="panel-label">THREAT LIST ({threats.length})</p>
@@ -892,6 +966,8 @@ export function LiveSimulation({ scenarioId, mode = 'desktop' }: { scenarioId: s
             himalayanVisuals={isHimalayan}
             xrStore={vrMode ? xrStore ?? undefined : undefined}
             xrActive={vrMode && immersiveActive}
+            phoneControlEnabled={phoneControlEnabled}
+            phoneRecenterKey={phoneRecenterKey}
             missionStartedAt={missionStarted ? startedAt.current : undefined}
             onThreatDetected={selectThreat}
           />

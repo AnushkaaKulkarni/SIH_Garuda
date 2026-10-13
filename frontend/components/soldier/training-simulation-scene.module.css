@@ -4,6 +4,38 @@
   background-image: none;
 }
 
+.phoneControlPanel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  border: 1px solid #376353;
+  border-radius: 5px;
+  background: linear-gradient(145deg, #0d272c, #071a20);
+  padding: 15px 18px;
+}
+
+.phoneControlHeading,
+.phoneControlActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.phoneControlHeading > div { display: grid; gap: 5px; }
+.phoneControlHeading > div > strong { color: #79d6b0; font: 700 14px/'Barlow Condensed', sans-serif; letter-spacing: .07em; }
+.pairingDetails { display: grid; gap: 5px; color: #b7c9c5; font-size: 11px; }
+.pairingCode { color: #ffc16c; font: 700 24px/'Barlow Condensed', sans-serif; letter-spacing: .2em; }
+.pairingDetails small { overflow-wrap: anywhere; color: #91aaa5; font-size: 10px; }
+.phoneControlStatus,
+.phoneControlError,
+.phoneSecurityNote { margin: 0; color: #b7c9c5; font-size: 11px; line-height: 1.5; }
+.phoneControlError { color: #ff9387; }
+.phoneSecurityNote { color: #90a5a1; font-size: 10px; }
+.phoneControlActions { justify-content: flex-start; }
+.phoneControlActions button:disabled { cursor: not-allowed; opacity: .5; }
+
 .loading {
   display: flex;
   min-height: 510px;
@@ -135,9 +167,18 @@
   display: none;
 }
 
+.immersive {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  overflow: auto;
+  background: #06121a;
+}
+
 .immersive :global(.page-content) {
   max-width: none;
-  padding: 8px;
+  min-height: 100%;
+  padding: 8px 12px 12px;
 }
 
 .immersive :global(.page-heading) {
@@ -150,13 +191,32 @@
 }
 
 .immersive :global(.simulation-layout) {
-  grid-template-columns: 170px minmax(0, 1fr) 210px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.immersive :global(.threat-list),
+.immersive :global(.target-details) {
+  display: none;
 }
 
 .immersive :global(.tactical-map) {
-  height: calc(100vh - 250px);
-  min-height: 330px;
+  height: calc(100dvh - 120px);
+  min-height: 300px;
+}
+
+.immersive :global(.workflow) {
+  display: none;
+}
+
+.immersive :global(.page-heading) {
+  margin-bottom: 6px;
+}
+
+.immersive .phoneControlPanel {
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 8px 12px;
 }
 
 @media (max-width: 900px) {
@@ -165,8 +225,8 @@
   }
 
   .immersive :global(.tactical-map) {
-    height: 58vh;
-    min-height: 310px;
+    height: calc(100dvh - 110px);
+    min-height: 260px;
   }
 }
 
