@@ -1,13 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getLatestPhoneFrame, setLatestPhoneFrame } from '@/lib/phone-control'
+import { useEffect, useRef, useState } from 'react'
+import { getLatestPhoneFrame, isPhoneFrameFresh, setLatestPhoneFrame } from '@/lib/phone-control'
 import styles from './training-simulation-scene.module.css'
 
 type PairResponse = {
   phoneConnected?: boolean
   stale?: boolean
-  frame?: { alpha: number; beta: number; gamma: number; screenAngle: number; updatedAt: number } | null
+  frame?: { alpha: number; beta: number; gamma: number; screenAngle: number; updatedAt: number; viewportWidth?: number; viewportHeight?: number; stereo?: boolean } | null
+  recenterKey?: number
   error?: string
 }
 
@@ -24,25 +25,38 @@ export function PhoneControlPanel({
   const [controlEnabled, setControlEnabled] = useState(false)
   const [recenterKey, setRecenterKey] = useState(0)
   const [error, setError] = useState('')
+  const remoteRecenterKey = useRef<number | null>(null)
+  const onControlChangeRef = useRef(onControlChange)
+  onControlChangeRef.current = onControlChange
 
   useEffect(() => {
     if (!pairingCode) return
     let stopped = false
     let busy = false
+    let lastPollStartedAt = 0
     let timer: ReturnType<typeof setTimeout>
 
     const poll = async () => {
       if (busy || stopped) return
       busy = true
+      lastPollStartedAt = performance.now()
       try {
-        const response = await fetch(`/api/phone-control?code=${encodeURIComponent(pairingCode)}`, { cache: 'no-store' })
+        const response = await fetch(`/api/phone-control?code=${encodeURIComponent(pairingCode)}&scope=orientation`, { cache: 'no-store' })
         const data = await response.json() as PairResponse
         if (!response.ok) throw new Error(data.error || 'Could not read phone connection status.')
         if (stopped) return
         setPhoneConnected(Boolean(data.phoneConnected))
         setFrameStale(Boolean(data.stale))
         setError('')
-        setLatestPhoneFrame(data.frame && Date.now() - data.frame.updatedAt < 1500 ? data.frame : null)
+        setLatestPhoneFrame(isPhoneFrameFresh(data.frame ?? null, Date.now()) ? data.frame! : null)
+        if (typeof data.recenterKey === 'number') {
+          if (remoteRecenterKey.current === null) remoteRecenterKey.current = data.recenterKey
+          else if (remoteRecenterKey.current !== data.recenterKey) {
+            remoteRecenterKey.current = data.recenterKey
+            setRecenterKey(data.recenterKey)
+            if (controlEnabled) onControlChangeRef.current(true, data.recenterKey)
+          }
+        }
       } catch (reason) {
         if (!stopped) {
           setPhoneConnected(false)
@@ -52,7 +66,10 @@ export function PhoneControlPanel({
         }
       } finally {
         busy = false
-        if (!stopped) timer = setTimeout(poll, controlEnabled ? 34 : 250)
+        if (!stopped) {
+          const cadenceMs = controlEnabled ? 34 : 250
+          timer = setTimeout(poll, Math.max(0, cadenceMs - (performance.now() - lastPollStartedAt)))
+        }
       }
     }
 
@@ -86,6 +103,7 @@ export function PhoneControlPanel({
       const data = await response.json() as { code?: string; error?: string }
       if (!response.ok || !data.code) throw new Error(data.error || 'Could not create a phone pairing.')
       setLatestPhoneFrame(null)
+      remoteRecenterKey.current = null
       setPhoneConnected(false)
       setFrameStale(true)
       setPairingCode(data.code)
@@ -102,6 +120,12 @@ export function PhoneControlPanel({
     const nextEnabled = !controlEnabled
     setControlEnabled(nextEnabled)
     onControlChange(nextEnabled, recenterKey)
+    if (nextEnabled && pairingCode) {
+      void fetch('/api/phone-control', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recenter', code: pairingCode }),
+      }).catch(() => undefined)
+    }
   }
 
   const recenter = () => {
@@ -109,6 +133,12 @@ export function PhoneControlPanel({
     const nextKey = recenterKey + 1
     setRecenterKey(nextKey)
     onControlChange(true, nextKey)
+    if (pairingCode) {
+      void fetch('/api/phone-control', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recenter', code: pairingCode }),
+      }).catch(() => undefined)
+    }
   }
 
   const disconnect = async () => {
@@ -166,6 +196,7 @@ export function PhoneControlPanel({
                 ? 'Mouse orbit is paused. The camera keeps its position and follows the phone view.'
                 : 'Phone data is live. Enable Phone Control to calibrate the current phone pose.'}
       </p>
+      {controlEnabled && <small className={styles.phoneSecurityNote}>Laptop view matches one phone eye’s vertical field of view and aspect ratio with a centered mono camera. The phone keeps stereo eye separation, so the two displays cannot be pixel-identical.</small>}
       {error && <p className={styles.phoneControlError} role="alert">{error}</p>}
       {pairingCode && (
         <div className={styles.phoneControlActions}>

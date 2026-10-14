@@ -1,0 +1,90 @@
+.manual {
+  --manual-line: #244750;
+  --manual-surface: #091d24;
+  --manual-muted: #a9bfba;
+  display: grid;
+  gap: 21px;
+  border: 1px solid #254951;
+  border-top: 2px solid var(--amber);
+  background: linear-gradient(145deg, #0b2028, #07161d 72%);
+  padding: 20px;
+  color: #e4eeea;
+}
+
+.header { display: grid; gap: 12px; }
+.heading { display: flex; align-items: center; gap: 10px; }
+.heading > div { display: grid; gap: 2px; }
+.heading p { margin: 0; }
+.heading h2 { margin: 0; font: 700 22px/1.1 'Barlow Condensed', sans-serif; }
+.icon { display: grid; width: 36px; height: 36px; place-items: center; border: 1px solid #805a2f; background: #292217; color: #f0b85f; }
+.objective { display: flex; align-items: flex-start; gap: 8px; margin: 0; border-left: 2px solid #d79a45; background: #111f22; padding: 10px 12px; color: #d2dfda; font-size: 12px; line-height: 1.55; }
+.objective svg { flex: 0 0 auto; margin-top: 1px; color: #edb45d; }
+.objective b { margin-right: 5px; color: #f0bd6b; }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chips > span { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #31535a; background: #0a1a20; padding: 6px 9px; color: #e5eeea; font-size: 11px; }
+.chips b { color: #8ba7a6; font: 700 9px/1 ui-monospace, monospace; letter-spacing: .04em; }
+.trainingNotice { display: flex; align-items: center; gap: 8px; margin: 0; color: #d8c293; font-size: 11px; line-height: 1.5; }
+.trainingNotice svg { flex: 0 0 auto; color: #e1ad56; }
+.section { display: grid; gap: 10px; }
+.sectionTitle { display: flex; align-items: center; gap: 8px; }
+.sectionTitle > span { display: grid; width: 21px; height: 21px; place-items: center; border: 1px solid #74552e; color: #e7ad54; font: 700 10px ui-monospace, monospace; }
+.sectionTitle h3 { margin: 0; color: #e8f0ec; font: 700 16px/1.15 'Barlow Condensed', sans-serif; letter-spacing: .025em; }
+.stages { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stage { min-width: 0; border: 1px solid var(--manual-line); background: var(--manual-surface); padding: 11px; }
+.stageTop { display: flex; align-items: center; justify-content: space-between; color: #eab15d; }
+.stageTop span { font: 700 10px ui-monospace, monospace; }
+.stage h4 { margin: 8px 0 4px; font: 700 13px 'Barlow Condensed', sans-serif; letter-spacing: .04em; }
+.stage p, .infoCard p, .responses p, .controlsGrid p { margin: 0; color: var(--manual-muted); font-size: 11px; line-height: 1.5; }
+.evidenceGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.infoCard { display: flex; gap: 9px; min-width: 0; border: 1px solid var(--manual-line); background: var(--manual-surface); padding: 10px; }
+.infoIcon { flex: 0 0 auto; color: #e9ad55; }
+.infoCard h4, .safetyRules h4, .responses h4, .controlsGrid h4 { margin: 0 0 4px; color: #e7efeb; font: 700 12px 'Barlow Condensed', sans-serif; }
+.safetyRules { border: 1px solid #604c2e; background: #211d17; padding: 11px 13px; color: #dfd5c1; font-size: 11px; line-height: 1.55; }
+.safetyRules h4 { color: #efc47a; }
+.safetyRules ul { display: grid; gap: 3px; margin: 6px 0; padding-left: 17px; }
+.safetyRules li::marker { color: #e3ad59; }
+.safetyRules p { margin: 7px 0 0; color: #c9bda5; }
+.sectionLead, .rubricNote, .contextNote { margin: 0; color: var(--manual-muted); font-size: 11px; line-height: 1.5; }
+.responses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.responses article { display: flex; gap: 9px; align-items: flex-start; border: 1px solid var(--manual-line); background: var(--manual-surface); padding: 10px; }
+.responses article > span { flex: 0 0 auto; border: 1px solid currentColor; padding: 4px 6px; font: 700 9px ui-monospace, monospace; }
+.responses h4 { margin-bottom: 3px; }
+.low { color: #9ac8a4; }.medium { color: #e3bd6c; }.high { color: #e58977; }
+.rubricNote { color: #cbbb9e; }
+.scoreGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.scoreGrid article { display: flex; align-items: center; gap: 9px; border: 1px solid var(--manual-line); background: var(--manual-surface); padding: 9px 10px; }
+.scoreGrid strong { color: #f0b960; font: 700 20px/1 'Barlow Condensed', sans-serif; }
+.scoreGrid small { padding-left: 2px; color: #9fb5b1; font: 600 9px ui-monospace, monospace; }
+.scoreGrid span { color: #d3dfda; font-size: 11px; }
+.scoreNote { margin: 0; color: var(--manual-muted); font-size: 10px; line-height: 1.55; }
+.reviewNote { display: flex; gap: 9px; align-items: flex-start; border-left: 2px solid #598476; background: #0d211f; padding: 9px 11px; color: #c3d8d1; }
+.reviewNote svg { flex: 0 0 auto; color: #8fc1a9; }
+.reviewNote p { margin: 0; font-size: 11px; line-height: 1.5; }
+.controlsGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.controlsGrid article { display: flex; gap: 9px; align-items: flex-start; border: 1px solid var(--manual-line); background: var(--manual-surface); padding: 10px; }
+.controlsGrid article > svg { flex: 0 0 auto; color: #e9ad55; }
+.controlsGrid h4 { margin-bottom: 3px; }
+.key { flex: 0 0 auto; border: 1px solid #59706e; background: #101d20; padding: 4px 5px; color: #dbe6df; font: 700 8px ui-monospace, monospace; }
+.commandDetails { border-top: 1px solid var(--manual-line); padding-top: 9px; }
+.commandDetails summary { width: fit-content; cursor: pointer; color: #e9b45e; font-size: 11px; }
+.commandDetails summary:focus-visible { outline: 2px solid #f1bd72; outline-offset: 3px; }
+.commandGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-top: 10px; }
+.commandGrid > div { border: 1px solid var(--manual-line); background: var(--manual-surface); padding: 9px; }
+.commandGrid b { color: #e9b45e; font: 700 10px 'Barlow Condensed', sans-serif; }
+.commandGrid p { margin: 5px 0 0; overflow-wrap: anywhere; color: #c6d5d0; font: 10px/1.5 ui-monospace, monospace; }
+.contextNote { border-top: 1px solid #1e4149; padding-top: 9px; }
+.compact { gap: 16px; }
+.compact .stage { padding: 9px; }
+
+@media (max-width: 860px) {
+  .stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scoreGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .manual { gap: 16px; padding: 14px; }
+  .heading h2 { font-size: 20px; }
+  .evidenceGrid, .responses, .controlsGrid, .commandGrid { grid-template-columns: minmax(0, 1fr); }
+  .stage { padding: 9px; }
+  .stage p, .infoCard p, .responses p, .controlsGrid p { font-size: 10px; }
+}

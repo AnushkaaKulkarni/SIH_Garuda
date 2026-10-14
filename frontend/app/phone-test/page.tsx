@@ -133,6 +133,8 @@ export default function PhoneTestPage() {
   const lastSceneLogAt = useRef(0)
   const lastConnectionLogAt = useRef(0)
   const sceneRenderFailed = useRef(false)
+  const lastDiagnosticRenderAt = useRef(0)
+  const remoteRecenterKey = useRef<number | null>(null)
 
   useEffect(() => {
     const codeFromUrl = new URLSearchParams(window.location.search).get('pair')
@@ -160,19 +162,21 @@ export default function PhoneTestPage() {
       }
       orientationRef.current = values
       if (isListening && [values.alpha, values.beta, values.gamma].every(isNumber)) {
+        const now = Date.now()
         setLatestPhoneFrame({
           alpha: values.alpha!,
           beta: values.beta!,
           gamma: values.gamma!,
           screenAngle: typeof screen.orientation?.angle === 'number' ? screen.orientation.angle : 0,
-          updatedAt: Date.now(),
+          updatedAt: now,
         })
-      }
-      setOrientation(values)
-      if (hasValue([values.alpha, values.beta, values.gamma])) {
-        setOrientationReceived(true)
-        setAvailability((current) => ({ ...current, deviceRotation: true }))
-        setConnectionStatus('SENSOR DATA RECEIVED')
+        if (now - lastDiagnosticRenderAt.current >= 250) {
+          lastDiagnosticRenderAt.current = now
+          setOrientation(values)
+          setOrientationReceived(true)
+          setAvailability((current) => current.deviceRotation ? current : ({ ...current, deviceRotation: true }))
+          setConnectionStatus((current) => current === 'SENSOR DATA RECEIVED' ? current : 'SENSOR DATA RECEIVED')
+        }
       }
     }
 
@@ -188,8 +192,6 @@ export default function PhoneTestPage() {
         z: event.acceleration?.z ?? null,
       }
 
-      setRotationRate(rate)
-      setAcceleration(accelerationValues)
       const hasRotationRate = hasValue([rate.alpha, rate.beta, rate.gamma])
       const hasAcceleration = hasValue([
         accelerationValues.x,
@@ -197,26 +199,20 @@ export default function PhoneTestPage() {
         accelerationValues.z,
       ])
       if (hasRotationRate || hasAcceleration) {
-        setMotionReceived(true)
-        setAvailability((current) => ({
-          ...current,
-          deviceMotion: true,
-          gyroscope: current.gyroscope || hasRotationRate,
-          accelerometer: current.accelerometer || hasAcceleration,
-        }))
-      }
-
-      if (
-        hasValue([
-          rate.alpha,
-          rate.beta,
-          rate.gamma,
-          accelerationValues.x,
-          accelerationValues.y,
-          accelerationValues.z,
-        ])
-      ) {
-        setConnectionStatus('SENSOR DATA RECEIVED')
+        const now = Date.now()
+        if (now - lastDiagnosticRenderAt.current >= 250) {
+          lastDiagnosticRenderAt.current = now
+          setRotationRate(rate)
+          setAcceleration(accelerationValues)
+          setMotionReceived(true)
+          setAvailability((current) => current.deviceMotion && (!hasRotationRate || current.gyroscope) && (!hasAcceleration || current.accelerometer) ? current : ({
+            ...current,
+            deviceMotion: true,
+            gyroscope: current.gyroscope || hasRotationRate,
+            accelerometer: current.accelerometer || hasAcceleration,
+          }))
+          setConnectionStatus((current) => current === 'SENSOR DATA RECEIVED' ? current : 'SENSOR DATA RECEIVED')
+        }
       }
     }
 
@@ -234,19 +230,26 @@ export default function PhoneTestPage() {
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     let busy = false
+    let lastPollStartedAt = 0
     const pollScene = async () => {
       if (stopped || busy) return
       busy = true
+      lastPollStartedAt = performance.now()
       try {
-        const response = await fetch(`/api/phone-control?code=${encodeURIComponent(pairingCode)}`, { cache: 'no-store' })
+        const response = await fetch(`/api/phone-control?code=${encodeURIComponent(pairingCode)}&scope=scene`, { cache: 'no-store' })
         const data = await response.json() as {
           scene?: PhoneSceneSnapshot | null
           sceneAgeMs?: number | null
           sceneElapsedMs?: number | null
+          recenterKey?: number
           error?: string
         }
         if (!response.ok) throw new Error(data.error || 'The laptop scene connection was interrupted.')
         if (!stopped) {
+          if (typeof data.recenterKey === 'number' && remoteRecenterKey.current !== data.recenterKey) {
+            remoteRecenterKey.current = data.recenterKey
+            setPhoneRecenterKey(data.recenterKey)
+          }
           const scene = data.scene && (data.sceneAgeMs ?? Infinity) < 4000 ? data.scene : null
           setSceneSnapshot(scene && Number.isFinite(data.sceneElapsedMs)
             ? { ...scene, missionStartedAt: Date.now() - Math.max(0, data.sceneElapsedMs!) }
@@ -272,7 +275,7 @@ export default function PhoneTestPage() {
         }
       } finally {
         busy = false
-        if (!stopped) timer = setTimeout(pollScene, 500)
+        if (!stopped) timer = setTimeout(pollScene, Math.max(0, 250 - (performance.now() - lastPollStartedAt)))
       }
     }
     void pollScene()
@@ -288,6 +291,7 @@ export default function PhoneTestPage() {
     let busy = false
     let timer: ReturnType<typeof setTimeout>
     const abortController = new AbortController()
+    let lastSendStartedAt = 0
 
     const sendLatest = async () => {
       if (stopped || !controllerRunning.current || busy) return
@@ -297,6 +301,7 @@ export default function PhoneTestPage() {
         return
       }
       busy = true
+      lastSendStartedAt = performance.now()
       try {
         const signedDegrees = (value: number) => ((value + 180) % 360 + 360) % 360 - 180
         const response = await fetch('/api/phone-control', {
@@ -312,6 +317,9 @@ export default function PhoneTestPage() {
               beta: signedDegrees(current.beta!),
               gamma: signedDegrees(current.gamma!),
               screenAngle: signedDegrees(typeof screen.orientation?.angle === 'number' ? screen.orientation.angle : 0),
+              viewportWidth: window.innerWidth,
+              viewportHeight: window.innerHeight,
+              stereo: true,
             },
           }),
         })
@@ -339,7 +347,7 @@ export default function PhoneTestPage() {
         }
       } finally {
         busy = false
-        if (!stopped && controllerRunning.current) timer = setTimeout(sendLatest, 34)
+        if (!stopped && controllerRunning.current) timer = setTimeout(sendLatest, Math.max(0, 34 - (performance.now() - lastSendStartedAt)))
       }
     }
 
@@ -444,6 +452,7 @@ export default function PhoneTestPage() {
       setSceneStatus('WAITING FOR LIVE SCENE')
       sceneRenderFailed.current = false
       setPhoneRecenterKey(0)
+      remoteRecenterKey.current = null
       setPairingCode(normalizedCode)
       setControllerId(nextControllerId)
       sessionStorage.setItem(storageKey, nextControllerId)
@@ -473,6 +482,7 @@ export default function PhoneTestPage() {
     setIsListening(false)
     setSceneSnapshot(null)
     setLatestPhoneFrame(null)
+    remoteRecenterKey.current = null
     setControlStatus('DISCONNECTED')
     setConnectionStatus('PHONE CONTROL STOPPED')
     unlockScreenOrientation()
@@ -522,7 +532,22 @@ export default function PhoneTestPage() {
         )}
         <p className={styles.viewerStatus} role="status">{sceneStatus}</p>
         {landscapeMessage.startsWith('Rotate') && <p className={styles.viewerNotice}>{landscapeMessage}</p>}
-        {sceneSnapshot && <button className={styles.viewerRecenter} type="button" onClick={() => setPhoneRecenterKey((key) => key + 1)}>Recenter</button>}
+        {sceneSnapshot && <button className={styles.viewerRecenter} type="button" onClick={() => {
+          const nextKey = (remoteRecenterKey.current ?? phoneRecenterKey) + 1
+          remoteRecenterKey.current = nextKey
+          setPhoneRecenterKey(nextKey)
+          void fetch('/api/phone-control', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'recenter', code: pairingCode }),
+          }).then(async (response) => {
+            if (!response.ok) return
+            const data = await response.json() as { recenterKey?: number }
+            if (typeof data.recenterKey === 'number') {
+              remoteRecenterKey.current = data.recenterKey
+              setPhoneRecenterKey(data.recenterKey)
+            }
+          }).catch(() => undefined)
+        }}>Recenter</button>}
         <button className={styles.viewerExit} type="button" onClick={stopPhoneControl}>Disconnect</button>
       </main>
     )

@@ -8,6 +8,7 @@ type PhoneSession = {
   lastUpdateAt: number
   frame: PhoneOrientationFrame | null
   snapshot: PhoneSceneSnapshot | null
+  recenterKey: number
 }
 
 declare global {
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
       lastUpdateAt: 0,
       frame: null,
       snapshot: null,
+      recenterKey: 0,
     })
     return json({ code, expiresInSeconds: SESSION_TTL_MS / 1000 })
   }
@@ -104,6 +106,16 @@ export async function POST(request: Request) {
       (number) => typeof number === 'number' && Number.isFinite(number),
     )) return json({ error: 'Orientation values must be finite numbers.' }, 400)
 
+    const hasViewport = value.viewportWidth !== undefined || value.viewportHeight !== undefined
+    if (hasViewport && (!Number.isFinite(value.viewportWidth) || !Number.isFinite(value.viewportHeight) ||
+      (value.viewportWidth ?? 0) <= 0 || (value.viewportHeight ?? 0) <= 0 ||
+      (value.viewportWidth ?? 0) > 10000 || (value.viewportHeight ?? 0) > 10000)) {
+      return json({ error: 'Phone viewport dimensions must be positive finite numbers.' }, 400)
+    }
+    if (value.stereo !== undefined && typeof value.stereo !== 'boolean') {
+      return json({ error: 'Phone stereo mode must be a boolean.' }, 400)
+    }
+
     session.controllerSeenAt = now
     session.lastUpdateAt = now
     session.frame = {
@@ -112,6 +124,8 @@ export async function POST(request: Request) {
       gamma: value.gamma as number,
       screenAngle: value.screenAngle as number,
       updatedAt: now,
+      ...(hasViewport ? { viewportWidth: value.viewportWidth as number, viewportHeight: value.viewportHeight as number } : {}),
+      ...(typeof value.stereo === 'boolean' ? { stereo: value.stereo } : {}),
     }
     return json({ accepted: true })
   }
@@ -119,6 +133,11 @@ export async function POST(request: Request) {
   if (body.action === 'close') {
     sessions.delete(code)
     return json({ closed: true })
+  }
+
+  if (body.action === 'recenter') {
+    session.recenterKey = (session.recenterKey ?? 0) + 1
+    return json({ recenterKey: session.recenterKey })
   }
 
   if (body.action === 'publish-scene') {
@@ -151,13 +170,18 @@ export async function GET(request: Request) {
   const phoneConnected = Boolean(
     session.controllerId && now - session.controllerSeenAt < CONTROLLER_LEASE_MS,
   )
-  return json({
+  const status = {
     phoneConnected,
     stale: !session.frame || now - session.frame.updatedAt > 1500,
     frame: session.frame,
     scene: session.snapshot,
     sceneAgeMs: session.snapshot ? now - session.snapshot.publishedAt : null,
     sceneElapsedMs: session.snapshot ? now - session.snapshot.missionStartedAt : null,
+    recenterKey: session.recenterKey ?? 0,
     expiresInSeconds: Math.max(0, Math.ceil((SESSION_TTL_MS - (now - session.touchedAt)) / 1000)),
-  })
+  }
+  const scope = url.searchParams.get('scope')
+  if (scope === 'orientation') return json({ phoneConnected, stale: status.stale, frame: status.frame, recenterKey: status.recenterKey, expiresInSeconds: status.expiresInSeconds })
+  if (scope === 'scene') return json({ phoneConnected, scene: status.scene, sceneAgeMs: status.sceneAgeMs, sceneElapsedMs: status.sceneElapsedMs, recenterKey: status.recenterKey, expiresInSeconds: status.expiresInSeconds })
+  return json(status)
 }

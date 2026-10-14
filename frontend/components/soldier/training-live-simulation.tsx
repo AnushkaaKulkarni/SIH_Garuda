@@ -11,6 +11,7 @@ import { parseVRCommand, type ParsedVRCommand } from '@/lib/vr-commands'
 import { TrainingVRControls } from './training-vr-controls'
 import { PhoneControlPanel } from './phone-control-panel'
 import type { PhoneSceneSnapshot } from '@/lib/phone-control'
+import { getTrainingNavigation } from '@/lib/training-navigation'
 import type { XRStore } from '@react-three/xr'
 import {
   calculateSessionScore,
@@ -73,6 +74,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
   const scenario = scenarios.find((item) => item.id === scenarioId) ?? scenarios[0]
   const isHimalayan = scenario.id === 'himalayan-shield'
   const vrMode = mode === 'vr'
+  const trainingNavigation = getTrainingNavigation(scenario.id, initialDifficulty ?? scenario.difficulty, attackMode)
   const [difficulty, setDifficulty] = useState<TrainingDifficulty>(initialDifficulty ?? scenario.difficulty)
   const [run, setRun] = useState({ id: 'starting', seed: 0 })
   const threats = useMemo<SessionThreat[]>(() => {
@@ -759,9 +761,11 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     let busy = false
+    let lastPublishStartedAt = 0
     const publish = async () => {
       if (stopped || busy) return
       busy = true
+      lastPublishStartedAt = performance.now()
       try {
         const snapshot = phoneSceneSnapshot.current
         if (snapshot) {
@@ -775,7 +779,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
         // The phone viewer is best effort; the laptop simulation remains authoritative.
       } finally {
         busy = false
-        if (!stopped) timer = setTimeout(publish, 500)
+        if (!stopped) timer = setTimeout(publish, Math.max(0, 250 - (performance.now() - lastPublishStartedAt)))
       }
     }
     void publish()
@@ -870,12 +874,12 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
           <article className={styles.controlsGuide}>
             <div className={styles.instructionSectionTitle}><span>CONTROLS</span></div>
             <div><b>MOUSE</b><span>Drag to orbit · Scroll to zoom · Click a drone to select</span></div>
-            <div><b>KEYBOARD</b><span>WASD or arrow keys to move around the range</span></div>
+            <div><b>KEYBOARD</b><span>W/A/S/D to move around the range</span></div>
           </article>
         </section>
 
         <footer className={styles.howToActions}>
-          {!missionStarted && <Link href={`/soldier/training/${scenario.id}/briefing`} className="button button-outline">Back to briefing</Link>}
+          {!missionStarted && <Link href={trainingNavigation.briefingHref} className="button button-outline">Back to briefing</Link>}
           <button className="button" onClick={beginSimulation}>
             {missionStarted ? 'BACK TO SIMULATION' : 'START SIMULATION'} <ArrowRight size={16} />
           </button>
@@ -991,6 +995,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
             xrStore={vrMode ? xrStore ?? undefined : undefined}
             xrActive={vrMode && immersiveActive}
             phoneControlEnabled={phoneControlEnabled}
+            phoneMatchedView={vrMode && phoneControlEnabled && !immersiveActive}
             phoneRecenterKey={phoneRecenterKey}
             missionStartedAt={missionStarted ? startedAt.current : undefined}
             onThreatDetected={selectThreat}
