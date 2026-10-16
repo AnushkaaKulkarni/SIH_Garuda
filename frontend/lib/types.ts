@@ -1,4 +1,4 @@
-﻿export type Role = 'trainee' | 'admin'
+export type Role = 'trainee' | 'admin'
 export type Scenario = {
   id: string
   name: string
@@ -21,7 +21,7 @@ export type Trainee = {
   status: string
   role: string
 }
-export type LanguageCode = 'en' | 'hi' | 'mr' | 'bn' | 'ta' | 'te' | 'kn' | 'gu' | 'pa' | 'ml' | 'or' | 'as' | 'ur'
+export type { LanguageCode } from './language-catalog'
 export type NavItem = { label: string; href: string; icon: string }
 export type Metric = { label: string; value: string; trend?: string; tone?: 'teal' | 'amber' | 'red' }
 
@@ -34,21 +34,7 @@ export const IMAGE_NIGHT = 'https://images.unsplash.com/photo-1519681393784-d120
 export const IMAGE_DESERT = 'https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=900&q=85'
 export const IMAGE_MOUNTAIN = 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=900&q=85'
 
-export const languages = [
-  { code: 'en', label: 'English' },
-  { code: 'hi', label: 'हिन्दी' },
-  { code: 'mr', label: 'मराठी' },
-  { code: 'bn', label: 'বাংলा' },
-  { code: 'ta', label: 'தமிழ்' },
-  { code: 'te', label: 'తెలుగు' },
-  { code: 'kn', label: 'ಕನ್ನಡ' },
-  { code: 'gu', label: 'ગુજરાતી' },
-  { code: 'pa', label: 'ਪੰਜਾਬੀ' },
-  { code: 'ml', label: 'മലയാളം' },
-  { code: 'or', label: 'ଓଡ଼ିଆ' },
-  { code: 'as', label: 'অসমীয়া' },
-  { code: 'ur', label: 'اردو' },
-] as const
+export { languages } from './language-catalog'
 
 export const copy = {
   en: {

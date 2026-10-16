@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { MultilingualProvider } from '@/components/common/multilingual-provider'
 
 export const metadata: Metadata = {
   title: 'GARUDA | Adaptive Drone Threat Training',
@@ -41,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">
-        {children}
+        <MultilingualProvider>{children}</MultilingualProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

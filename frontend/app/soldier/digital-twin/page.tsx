@@ -1,2 +1,2 @@
-import { DigitalTwinExperience } from '@/components/soldier/training-experience'
-export default function Page(){return <DigitalTwinExperience/>}
+import { SoldierDatabaseView } from '@/components/soldier/soldier-database-views'
+export default function Page(){return <SoldierDatabaseView view="digital-twin"/>}

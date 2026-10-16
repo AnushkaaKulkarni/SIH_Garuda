@@ -796,7 +796,7 @@ export type TrainingHistoryItem = {
   difficulty: TrainingDifficulty
 }
 
-export function saveTrainingSession(session: TrainingSession): string | null {
+export async function saveTrainingSession(session: TrainingSession): Promise<string | null> {
   try {
     window.localStorage.setItem(sessionKey(session.id), JSON.stringify(session))
     window.sessionStorage.setItem('garuda-last-session', JSON.stringify(session))
@@ -826,10 +826,53 @@ export function saveTrainingSession(session: TrainingSession): string | null {
         },
       ]),
     )
+    try {
+      const response = await fetch('/api/training/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(session),
+        signal: AbortSignal.timeout(12000),
+      })
+      if (!response.ok) {
+        return 'Session saved on this device, but account sync failed. Keep this browser data and retry when the service is available.'
+      }
+    } catch {
+      return 'Session saved on this device, but account sync failed. Keep this browser data and retry when the service is available.'
+    }
     return null
   } catch (error) {
     console.error('Unable to persist the completed training session.', error)
     return 'Session completed, but browser storage could not save its replay data.'
+  }
+}
+
+export async function importLocalTrainingSessions() {
+  const sessions: TrainingSession[] = []
+  try {
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index)
+      if (!key?.startsWith('garuda-training-session:')) continue
+      try {
+        const session = parseSession(window.localStorage.getItem(key))
+        if (session) sessions.push(session)
+      } catch {
+        // Ignore a malformed legacy browser record without discarding the original.
+      }
+    }
+    let imported = 0
+    for (let offset = 0; offset < sessions.length; offset += 25) {
+      const response = await fetch('/api/training/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessions: sessions.slice(offset, offset + 25) }),
+      })
+      if (!response.ok) throw new Error('Local results could not be imported. Sign in as their owner and try again.')
+      const result = await response.json() as { imported?: unknown }
+      if (typeof result.imported === 'number') imported += result.imported
+    }
+    return { imported, found: sessions.length }
+  } catch (error) {
+    throw error instanceof Error ? error : new Error('Local results could not be imported.')
   }
 }
 

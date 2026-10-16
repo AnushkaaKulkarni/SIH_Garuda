@@ -36,8 +36,28 @@ export function TrainingVRControls({
   const [commandHelpOpen, setCommandHelpOpen] = useState(false)
   const [lastAction, setLastAction] = useState('')
   const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>('English')
-  const voice = useVoiceCommands((transcript) => {
-    setLastAction(onCommand(transcript))
+  const voice = useVoiceCommands(async (transcript) => {
+    let commandText = transcript
+    if (voiceLanguage === 'Hindi') {
+      try {
+        const response = await fetch('/api/language/translate-command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: transcript }),
+        })
+        if (!response.ok) {
+          setLastAction('Hindi command translation is unavailable. Use English voice commands.')
+        } else {
+          const result = await response.json() as { text?: unknown }
+          if (typeof result.text === 'string' && parseVRCommand(result.text, threatIds).status !== 'unrecognized') {
+            commandText = result.text
+          }
+        }
+      } catch {
+        setLastAction('Hindi command translation is unavailable. Use English voice commands.')
+      }
+    }
+    setLastAction(onCommand(commandText))
   }, voiceLanguage)
 
   const webXrLabel = immersiveActive
@@ -97,7 +117,7 @@ export function TrainingVRControls({
           VOICE COMMANDS
         </button>
       </div>
-      <div className={styles.feedback} aria-live="polite">
+      <div className={styles.feedback} aria-live="polite" data-no-translate>
         {voice.isSupported === false && <span>Browser voice recognition is unavailable. Use mouse/keyboard controls.</span>}
         {voice.isSupported === true && !voice.isListening && !voice.error && <span>Microphone permission is required. Speech is not stored or uploaded.</span>}
         {webXrSupported === false && !xrError && <span>Immersive VR hardware not detected. VR Preview Mode remains available.</span>}
@@ -106,7 +126,7 @@ export function TrainingVRControls({
         {xrError && <span role="status">{xrError}</span>}
       </div>
       {commandHelpOpen && (
-        <div className={styles.commandHelp}>
+        <div className={styles.commandHelp} data-no-translate>
           <div className={styles.helpHeader}><strong>VOICE COMMANDS</strong><button onClick={() => setCommandHelpOpen(false)} aria-label="Close voice command help"><X size={14} /></button></div>
           <div className={styles.helpGrid}>
             {VR_COMMAND_GROUPS.map((group) => (

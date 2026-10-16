@@ -476,7 +476,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
     return true
   }
 
-  const finishMission = () => {
+  const finishMission = async () => {
     if (!missionStarted || completionGuard.current || submitted) return
     completionGuard.current = true
     const completedAt = Date.now()
@@ -533,7 +533,7 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
     }
     eventLog.current = session.events
     setEvents(session.events)
-    const storageMessage = saveTrainingSession(session)
+    const storageMessage = await saveTrainingSession(session)
     setStorageError(storageMessage ?? '')
     setSubmitted(true)
     setFullscreen(false)
@@ -675,7 +675,25 @@ export function LiveSimulation({ scenarioId, mode = 'desktop', initialDifficulty
       setShowHowToPlay(false)
       return
     }
-    setRun({ id: createSessionId(), seed: createScenarioSeed() })
+    const nextRun = { id: createSessionId(), seed: createScenarioSeed() }
+    setRun(nextRun)
+    setStorageError('')
+    void fetch('/api/training/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'IN_PROGRESS',
+        id: nextRun.id,
+        seed: nextRun.seed,
+        scenario: scenario.id,
+        difficulty,
+        attackMode,
+        mode: vrMode ? 'vr' : 'desktop',
+        startedAt: new Date().toISOString(),
+      }),
+    }).then((response) => {
+      if (!response.ok) setStorageError('This session is running locally, but the server could not register it.')
+    }).catch(() => setStorageError('This session is running locally, but the server could not register it.'))
     setMissionStarted(true)
     setShowHowToPlay(false)
   }

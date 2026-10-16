@@ -1,2 +1,2 @@
-import { SoldierPage } from '@/components/soldier/soldier-page'
-export default function Page(){return <SoldierPage view="dashboard"/>}
+import { SoldierDatabaseView } from '@/components/soldier/soldier-database-views'
+export default function Page(){return <SoldierDatabaseView view="dashboard"/>}

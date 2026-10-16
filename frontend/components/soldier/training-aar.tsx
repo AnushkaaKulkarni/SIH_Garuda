@@ -11,8 +11,6 @@ import {
   formatDuration,
   getSessionMetrics,
   getWhatIfOpportunity,
-  readTrainingHistory,
-  readTrainingSession,
   type SessionEvent,
   type TrainingHistoryItem,
   type TrainingSession,
@@ -274,13 +272,30 @@ export function AARExperience({ session: sessionId }: { session: string }) {
   const [storedHistory, setStoredHistory] = useState<TrainingHistoryItem[]>([])
 
   useEffect(() => {
+    let active = true
     setSessionLoading(true)
-    const storedSession = readTrainingSession(sessionId)
-    setStoredHistory(readTrainingHistory())
-    setSession(storedSession)
+    setSession(null)
+    void Promise.all([
+      fetch(`/api/training/sessions/${encodeURIComponent(sessionId)}`, { cache: 'no-store' }),
+      fetch('/api/training/sessions', { cache: 'no-store' }),
+    ]).then(async ([sessionResponse, historyResponse]) => {
+      if (!active) return
+      if (sessionResponse.ok) {
+        const result = await sessionResponse.json() as { session?: TrainingSession }
+        setSession(result.session ?? null)
+      }
+      if (historyResponse.ok) {
+        const result = await historyResponse.json() as { sessions?: TrainingHistoryItem[] }
+        setStoredHistory(Array.isArray(result.sessions) ? result.sessions : [])
+      }
+    }).catch(() => {
+      if (active) setStoredHistory([])
+    }).finally(() => {
+      if (active) setSessionLoading(false)
+    })
     setReplayMode(null)
     setWhatIfComplete(false)
-    setSessionLoading(false)
+    return () => { active = false }
   }, [sessionId])
 
   const metrics = useMemo(() => session ? getSessionMetrics(session) : null, [session])

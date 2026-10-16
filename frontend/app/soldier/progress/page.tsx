@@ -1,2 +1,2 @@
-import { ProgressExperience } from '@/components/soldier/training-experience'
-export default function Page(){return <ProgressExperience/>}
+import { SoldierDatabaseView } from '@/components/soldier/soldier-database-views'
+export default function Page(){return <SoldierDatabaseView view="progress"/>}
